@@ -18,6 +18,17 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
   const [user, setUser] = useState<SpotifyUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
+  // Get redirect URI - must be consistent
+  const getRedirectUri = () => {
+    // Use environment variable if set, otherwise use current origin
+    const envRedirectUri = import.meta.env.VITE_SPOTIFY_REDIRECT_URI;
+    if (envRedirectUri) {
+      return envRedirectUri;
+    }
+    // Fallback to current origin + pathname (must match Spotify app settings)
+    return `${window.location.origin}${window.location.pathname}`;
+  };
+
   // Check for existing auth on mount
   useEffect(() => {
     const storedToken = localStorage.getItem("spotify_access_token");
@@ -34,6 +45,7 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
         // Token expired, clear it
         localStorage.removeItem("spotify_access_token");
         localStorage.removeItem("spotify_token_expiry");
+        localStorage.removeItem("spotify_refresh_token");
       }
     }
 
@@ -41,16 +53,34 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
     const error = urlParams.get("error");
+    const state = urlParams.get("state");
+    const storedState = sessionStorage.getItem("spotify_oauth_state");
 
-    if (error) {
+    // Verify state parameter to prevent CSRF
+    if (code && state !== storedState) {
       toast({
         title: "Authentication failed",
-        description: "Could not connect to Spotify. Please try again.",
+        description: "Security validation failed. Please try again.",
         variant: "destructive",
       });
+      sessionStorage.removeItem("spotify_oauth_state");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (error) {
+      const errorDescription = urlParams.get("error_description") || "Could not connect to Spotify.";
+      toast({
+        title: "Authentication failed",
+        description: errorDescription,
+        variant: "destructive",
+      });
+      sessionStorage.removeItem("spotify_oauth_state");
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (code) {
+      // Clean up state before processing
+      sessionStorage.removeItem("spotify_oauth_state");
       handleOAuthCallback(code);
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -59,6 +89,8 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
 
   const handleOAuthCallback = async (code: string) => {
     try {
+      const redirectUri = getRedirectUri();
+      
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/spotify-auth`,
         {
@@ -67,21 +99,34 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ 
+            code,
+            redirect_uri: redirectUri // CRITICAL: Must match the redirect_uri used in auth request
+          }),
         }
       );
 
       if (!response.ok) {
-        throw new Error("Failed to exchange code for token");
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error_description || errorData.error || "Failed to exchange code for token");
       }
 
       const data = await response.json();
-      const { access_token, expires_in } = data;
+      const { access_token, expires_in, refresh_token } = data;
+
+      if (!access_token) {
+        throw new Error("No access token received");
+      }
 
       // Store token with expiry
-      const expiryTime = Date.now() + expires_in * 1000;
+      const expiryTime = Date.now() + (expires_in || 3600) * 1000;
       localStorage.setItem("spotify_access_token", access_token);
       localStorage.setItem("spotify_token_expiry", expiryTime.toString());
+      
+      // Store refresh token if provided
+      if (refresh_token) {
+        localStorage.setItem("spotify_refresh_token", refresh_token);
+      }
 
       setAccessToken(access_token);
       setIsAuthenticated(true);
@@ -96,7 +141,7 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       console.error("OAuth callback error:", error);
       toast({
         title: "Authentication failed",
-        description: "Could not connect to Spotify. Please try again.",
+        description: error instanceof Error ? error.message : "Could not connect to Spotify. Please try again.",
         variant: "destructive",
       });
     }
@@ -131,7 +176,13 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       return;
     }
 
-    const redirectUri = `${window.location.origin}${window.location.pathname}`;
+    // Generate state parameter for CSRF protection
+    const state = crypto.randomUUID();
+    sessionStorage.setItem("spotify_oauth_state", state);
+
+    // Get redirect URI (must be consistent)
+    const redirectUri = getRedirectUri();
+    
     const scopes = [
       "user-read-private",
       "user-read-email",
@@ -140,51 +191,19 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       "playlist-read-collaborative",
     ].join(" ");
 
+    // Build authorization URL
     const authUrl = `https://accounts.spotify.com/authorize?${new URLSearchParams({
       response_type: "code",
       client_id: clientId,
       scope: scopes,
-      redirect_uri: redirectUri,
-      show_dialog: "true",
+      redirect_uri: redirectUri, // Must match exactly in token exchange
+      state: state, // CSRF protection
+      show_dialog: "true", // Always show dialog (useful for testing)
     })}`;
 
-    // Open in popup window for better iframe compatibility
-    const width = 500;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    const popup = window.open(
-      authUrl,
-      "Spotify Login",
-      `width=${width},height=${height},left=${left},top=${top},popup=yes`
-    );
-
-    // Poll for the popup to close and check for auth code
-    const pollTimer = setInterval(() => {
-      try {
-        if (popup?.closed) {
-          clearInterval(pollTimer);
-          // Check if we got a code in the URL
-          const urlParams = new URLSearchParams(window.location.search);
-          const code = urlParams.get("code");
-          if (code) {
-            handleOAuthCallback(code);
-            window.history.replaceState({}, document.title, window.location.pathname);
-          }
-        } else if (popup?.location?.href?.includes(window.location.origin)) {
-          const popupUrl = new URL(popup.location.href);
-          const code = popupUrl.searchParams.get("code");
-          if (code) {
-            clearInterval(pollTimer);
-            popup.close();
-            handleOAuthCallback(code);
-          }
-        }
-      } catch (e) {
-        // Cross-origin error expected while on Spotify domain
-      }
-    }, 500);
+    // Use full page redirect (recommended by Spotify docs)
+    // The callback will be handled in useEffect when user returns
+    window.location.href = authUrl;
   };
 
   const handleLogout = () => {
