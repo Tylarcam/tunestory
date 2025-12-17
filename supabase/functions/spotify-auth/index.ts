@@ -31,28 +31,16 @@ serve(async (req) => {
     const clientSecret = Deno.env.get("SPOTIFY_CLIENT_SECRET");
 
     if (!clientId || !clientSecret) {
+      console.error("Missing Spotify credentials - SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set");
       return new Response(
         JSON.stringify({ error: "Spotify credentials not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Validate redirect_uri matches expected pattern (security check)
-    const allowedRedirectUris = Deno.env.get("SPOTIFY_ALLOWED_REDIRECT_URIS")?.split(",") || [];
-    const isAllowed = allowedRedirectUris.some(allowed => redirect_uri.startsWith(allowed)) || 
-                     redirect_uri.startsWith("http://localhost:") ||
-                     redirect_uri.startsWith("http://127.0.0.1:");
-
-    if (!isAllowed && allowedRedirectUris.length > 0) {
-      console.error("Redirect URI not allowed:", redirect_uri);
-      return new Response(
-        JSON.stringify({ error: "Invalid redirect_uri" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    console.log("Exchanging code for token with redirect_uri:", redirect_uri);
 
     // Exchange authorization code for access token
-    // IMPORTANT: redirect_uri must EXACTLY match the one used in the authorization request
     const response = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
@@ -62,25 +50,22 @@ serve(async (req) => {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
-        redirect_uri: redirect_uri, // Use the exact redirect_uri from the auth request
+        redirect_uri: redirect_uri,
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: await response.text() }));
-      console.error("Spotify token exchange error:", JSON.stringify(errorData));
-      
-      // Return detailed error from Spotify
+      const error = await response.text();
+      console.error("Spotify token exchange error:", error);
       return new Response(
-        JSON.stringify({ 
-          error: errorData.error || "Failed to exchange authorization code",
-          error_description: errorData.error_description || "Unknown error occurred"
-        }),
-        { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Failed to exchange authorization code", details: error }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const data = await response.json();
+
+    console.log("Token exchange successful");
 
     return new Response(
       JSON.stringify({
@@ -99,4 +84,3 @@ serve(async (req) => {
     );
   }
 });
-
