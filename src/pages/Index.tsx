@@ -69,6 +69,12 @@ const Index = () => {
 
       setState("gathering");
 
+      // Validate that we have the required data
+      if (!analysis.searchTerms || !Array.isArray(analysis.searchTerms) || analysis.searchTerms.length === 0) {
+        console.warn("No searchTerms in analysis, using fallback");
+        analysis.searchTerms = [`${analysis.mood || "music"} ${analysis.genres?.[0] || ""}`.trim()];
+      }
+
       const recsResponse = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-recommendations`,
         {
@@ -82,6 +88,7 @@ const Index = () => {
             genres: analysis.genres,
             mood: analysis.mood,
             energy: analysis.energy,
+            visualElements: analysis.visualElements || null, // Pass visual elements if available
           }),
         }
       );

@@ -42,18 +42,44 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a music mood analyzer. Analyze images and extract the emotional mood, energy level, and suggest music genres that would match the vibe of the image.
+            content: `You are an expert music mood analyzer for Spotify. Analyze images and extract detailed musical characteristics that will help find matching songs.
+
+Analyze the image for:
+1. Emotional mood (joyful, melancholic, energetic, calm, etc.)
+2. Energy level (Low, Medium, High)
+3. Visual elements: colors (warm/cool, bright/dark), setting (beach, city, nature, etc.), time of day
+4. Overall atmosphere and vibe
+
+IMPORTANT - Generate Spotify search terms that will work well with Spotify's search API. Good search terms:
+- Combine mood + genre: "chill indie pop", "energetic electronic dance"
+- Include descriptive music terms: "ambient atmospheric", "upbeat tropical house"
+- Use music-specific descriptors: "synthwave retro", "acoustic folk", "lo-fi hip hop"
+- Consider the visual elements: beach scenes → "tropical" or "island vibes", night scenes → "nocturnal" or "dark ambient"
+- Be specific but searchable: "indie rock summer vibes" is better than just "happy"
 
 Always respond with a JSON object in this exact format:
 {
-  "mood": "single word or short phrase describing the mood",
+  "mood": "single word or short phrase describing the primary mood (e.g., 'joyful', 'melancholic', 'energetic', 'peaceful')",
   "energy": "Low", "Medium", or "High",
   "genres": ["genre1", "genre2", "genre3"],
   "description": "A poetic one-sentence description of the vibe",
-  "searchTerms": ["search term 1", "search term 2", "search term 3"]
+  "searchTerms": ["search term 1", "search term 2", "search term 3", "search term 4"],
+  "visualElements": {
+    "colors": ["color1", "color2"],
+    "setting": "setting description",
+    "timeOfDay": "morning/afternoon/evening/night/unknown",
+    "atmosphere": "atmospheric description"
+  }
 }
 
-The searchTerms should be specific Spotify search queries that would find songs matching this mood. Be creative and specific - include artist names, song characteristics, or specific song moods.`
+Generate 4 searchTerms minimum. Each should be a complete Spotify-searchable query (2-5 words) that combines mood, genre, and characteristics. Examples:
+- "chill indie acoustic"
+- "energetic electronic dance"
+- "melancholic piano ballad"
+- "upbeat tropical house"
+- "dark ambient atmospheric"
+- "warm folk indie"
+- "vibrant synthwave retro"`
           },
           {
             role: "user",
@@ -120,7 +146,13 @@ The searchTerms should be specific Spotify search queries that would find songs 
         energy: "Medium",
         genres: ["Indie", "Alternative", "Electronic"],
         description: "A moment captured in time, filled with possibility.",
-        searchTerms: ["chill vibes", "indie mood", "atmospheric music"]
+        searchTerms: ["chill indie vibes", "ambient electronic", "atmospheric alternative", "mellow indie pop"],
+        visualElements: {
+          colors: [],
+          setting: "unknown",
+          timeOfDay: "unknown",
+          atmosphere: "neutral"
+        }
       };
     }
 

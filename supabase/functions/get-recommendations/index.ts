@@ -70,44 +70,104 @@ serve(async (req) => {
   }
 
   try {
-    const { searchTerms, genres, mood, energy } = await req.json();
+    const { searchTerms, genres, mood, energy, visualElements } = await req.json();
 
-    console.log("Getting recommendations for:", { searchTerms, genres, mood, energy });
+    console.log("Getting recommendations for:", { searchTerms, genres, mood, energy, visualElements });
 
     const token = await getSpotifyToken();
     
-    // Build search queries from different inputs
+    // Build search queries from different inputs with multiple strategies
     const queries: string[] = [];
     
-    if (searchTerms && searchTerms.length > 0) {
-      queries.push(...searchTerms.slice(0, 3));
+    // Strategy 1: Use provided searchTerms (highest priority - these are optimized for Spotify)
+    if (searchTerms && Array.isArray(searchTerms) && searchTerms.length > 0) {
+      // Use up to 4 search terms
+      queries.push(...searchTerms.slice(0, 4).filter(term => term && term.trim().length > 0));
     }
     
-    // Add genre-based queries
-    if (genres && genres.length > 0) {
-      queries.push(`${mood} ${genres[0]}`);
+    // Strategy 2: Combine mood + genre (more specific)
+    if (genres && Array.isArray(genres) && genres.length > 0 && mood) {
+      genres.slice(0, 2).forEach(genre => {
+        const query = `${mood.toLowerCase()} ${genre.toLowerCase()}`.trim();
+        if (query.length > 0) {
+          queries.push(query);
+        }
+      });
     }
     
-    // Add mood + energy based query
-    queries.push(`${mood} ${energy} vibes`);
+    // Strategy 3: Energy + genre combinations
+    if (genres && Array.isArray(genres) && genres.length > 0 && energy) {
+      genres.slice(0, 2).forEach(genre => {
+        const energyLower = energy.toLowerCase();
+        queries.push(`${energyLower} ${genre.toLowerCase()}`);
+      });
+    }
+    
+    // Strategy 4: Visual element-based searches (if available)
+    if (visualElements) {
+      if (visualElements.setting) {
+        queries.push(`${visualElements.setting} vibes`);
+      }
+      if (visualElements.atmosphere) {
+        queries.push(`${visualElements.atmosphere} music`);
+      }
+    }
+    
+    // Strategy 5: Mood + energy combination (fallback)
+    if (mood && energy) {
+      queries.push(`${mood.toLowerCase()} ${energy.toLowerCase()} music`);
+    }
+    
+    // Strategy 6: Genre-only fallbacks (if we don't have enough queries)
+    if (queries.length < 3 && genres && Array.isArray(genres) && genres.length > 0) {
+      genres.slice(0, 2).forEach(genre => {
+        queries.push(genre.toLowerCase());
+      });
+    }
 
-    console.log("Search queries:", queries);
+    // Remove duplicates and empty queries
+    const uniqueQueries = [...new Set(queries.filter(q => q && q.trim().length > 0))];
+    
+    // Ensure we have at least 3 queries
+    if (uniqueQueries.length === 0) {
+      // Ultimate fallback
+      uniqueQueries.push("popular music", "trending", "top hits");
+    }
+
+    console.log("Search queries to execute:", uniqueQueries);
 
     // Search for tracks using multiple queries
     const allTracks: SpotifyTrack[] = [];
     const seenIds = new Set<string>();
+    const queryResults: { query: string; count: number }[] = [];
 
-    for (const query of queries) {
-      const tracks = await searchTracks(token, query, 3);
-      for (const track of tracks) {
-        if (!seenIds.has(track.id)) {
-          seenIds.add(track.id);
-          allTracks.push(track);
+    for (const query of uniqueQueries) {
+      try {
+        const tracks = await searchTracks(token, query, 5);
+        queryResults.push({ query, count: tracks.length });
+        
+        for (const track of tracks) {
+          if (!seenIds.has(track.id)) {
+            seenIds.add(track.id);
+            allTracks.push(track);
+          }
         }
+        
+        // If we have enough tracks, we can stop early
+        if (allTracks.length >= 10) {
+          console.log(`Early stop: Found ${allTracks.length} tracks`);
+          break;
+        }
+      } catch (error) {
+        console.error(`Error searching for "${query}":`, error);
+        // Continue with other queries even if one fails
       }
     }
 
-    // Take the top 5 unique tracks
+    console.log("Query results summary:", queryResults);
+    console.log(`Total unique tracks found: ${allTracks.length}`);
+
+    // Take the top 5 unique tracks (prioritize tracks from earlier queries)
     const topTracks = allTracks.slice(0, 5);
 
     console.log(`Found ${topTracks.length} tracks`);
