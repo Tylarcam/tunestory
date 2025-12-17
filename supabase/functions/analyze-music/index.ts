@@ -5,44 +5,44 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface AudioFeatures {
-  danceability: number;
-  energy: number;
-  valence: number; // Positivity/happiness (0-1)
-  tempo: number;
-  acousticness: number;
-  instrumentalness: number;
-  liveness: number;
-  speechiness: number;
-}
-
 interface Track {
   id: string;
   name: string;
-  artists: { name: string }[];
-  album: { name: string; images: { url: string }[] };
-  preview_url: string | null;
-  external_urls: { spotify: string };
+  artist: string;
 }
 
-async function getLikedTracks(accessToken: string, limit = 50): Promise<Track[]> {
+interface AudioFeatures {
+  energy: number;
+  valence: number;
+  tempo: number;
+  danceability: number;
+  acousticness: number;
+  instrumentalness: number;
+}
+
+async function getLikedTracks(accessToken: string): Promise<Track[]> {
   const tracks: Track[] = [];
-  let url = `https://api.spotify.com/v1/me/tracks?limit=${limit}`;
+  let url = "https://api.spotify.com/v1/me/tracks?limit=50";
 
-  while (url) {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
 
-    if (!response.ok) {
-      throw new Error("Failed to fetch liked tracks");
+  if (!response.ok) {
+    throw new Error("Failed to fetch liked tracks");
+  }
+
+  const data = await response.json();
+  for (const item of data.items) {
+    if (item.track) {
+      tracks.push({
+        id: item.track.id,
+        name: item.track.name,
+        artist: item.track.artists?.map((a: any) => a.name).join(", ") || "Unknown",
+      });
     }
-
-    const data = await response.json();
-    tracks.push(...data.items.map((item: { track: Track }) => item.track));
-    url = data.next;
   }
 
   return tracks;
@@ -52,57 +52,52 @@ async function getPlaylistTracks(accessToken: string, playlistId: string): Promi
   const tracks: Track[] = [];
   let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`;
 
-  while (url) {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
 
-    if (!response.ok) {
-      throw new Error("Failed to fetch playlist tracks");
+  if (!response.ok) {
+    throw new Error("Failed to fetch playlist tracks");
+  }
+
+  const data = await response.json();
+  for (const item of data.items) {
+    if (item.track) {
+      tracks.push({
+        id: item.track.id,
+        name: item.track.name,
+        artist: item.track.artists?.map((a: any) => a.name).join(", ") || "Unknown",
+      });
     }
-
-    const data = await response.json();
-    tracks.push(...data.items.map((item: { track: Track | null }) => item.track).filter(Boolean));
-    url = data.next;
   }
 
   return tracks;
 }
 
 async function getAudioFeatures(accessToken: string, trackIds: string[]): Promise<AudioFeatures[]> {
-  // Spotify API allows max 100 IDs per request
-  const chunks: string[][] = [];
-  for (let i = 0; i < trackIds.length; i += 100) {
-    chunks.push(trackIds.slice(i, i + 100));
-  }
+  if (trackIds.length === 0) return [];
 
-  const allFeatures: AudioFeatures[] = [];
-
-  for (const chunk of chunks) {
-    const response = await fetch(
-      `https://api.spotify.com/v1/audio-features?ids=${chunk.join(",")}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      console.error("Failed to fetch audio features");
-      continue;
+  const response = await fetch(
+    `https://api.spotify.com/v1/audio-features?ids=${trackIds.slice(0, 50).join(",")}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     }
+  );
 
-    const data = await response.json();
-    allFeatures.push(...(data.audio_features.filter(Boolean) as AudioFeatures[]));
+  if (!response.ok) {
+    console.error("Failed to fetch audio features");
+    return [];
   }
 
-  return allFeatures;
+  const data = await response.json();
+  return data.audio_features?.filter(Boolean) || [];
 }
 
-function analyzeVibe(features: AudioFeatures[]): {
+function analyzeFeatures(features: AudioFeatures[]): {
   mood: string;
   energy: string;
   genres: string[];
@@ -122,76 +117,58 @@ function analyzeVibe(features: AudioFeatures[]): {
   // Calculate averages
   const avgEnergy = features.reduce((sum, f) => sum + f.energy, 0) / features.length;
   const avgValence = features.reduce((sum, f) => sum + f.valence, 0) / features.length;
-  const avgTempo = features.reduce((sum, f) => sum + f.tempo, 0) / features.length;
   const avgDanceability = features.reduce((sum, f) => sum + f.danceability, 0) / features.length;
   const avgAcousticness = features.reduce((sum, f) => sum + f.acousticness, 0) / features.length;
-  const avgInstrumentalness = features.reduce((sum, f) => sum + f.instrumentalness, 0) / features.length;
+  const avgTempo = features.reduce((sum, f) => sum + f.tempo, 0) / features.length;
 
-  // Determine mood based on valence (happiness)
+  // Determine mood based on valence
   let mood: string;
-  if (avgValence > 0.7) {
-    mood = "Joyful";
-  } else if (avgValence > 0.5) {
-    mood = "Upbeat";
-  } else if (avgValence > 0.3) {
-    mood = "Melancholic";
-  } else {
-    mood = "Somber";
-  }
+  if (avgValence > 0.7) mood = "Joyful";
+  else if (avgValence > 0.5) mood = "Upbeat";
+  else if (avgValence > 0.3) mood = "Reflective";
+  else mood = "Melancholic";
 
   // Determine energy level
   let energy: string;
-  if (avgEnergy > 0.7) {
-    energy = "High";
-  } else if (avgEnergy > 0.4) {
-    energy = "Medium";
-  } else {
-    energy = "Low";
-  }
+  if (avgEnergy > 0.7) energy = "High";
+  else if (avgEnergy > 0.4) energy = "Medium";
+  else energy = "Low";
 
-  // Determine genres based on characteristics
+  // Determine genres based on features
   const genres: string[] = [];
-  if (avgAcousticness > 0.5) {
-    genres.push("Acoustic", "Folk");
-  }
-  if (avgInstrumentalness > 0.5) {
-    genres.push("Instrumental", "Ambient");
-  }
-  if (avgDanceability > 0.6) {
-    genres.push("Dance", "Pop");
-  }
-  if (avgTempo > 120) {
-    genres.push("Electronic", "EDM");
-  }
-  if (avgTempo < 90) {
-    genres.push("Ballad", "Slow");
-  }
-  if (genres.length === 0) {
-    genres.push("Indie", "Alternative", "Rock");
-  }
+  if (avgAcousticness > 0.6) genres.push("Acoustic");
+  if (avgDanceability > 0.7) genres.push("Dance");
+  if (avgEnergy > 0.7 && avgTempo > 120) genres.push("Electronic");
+  if (avgValence < 0.3 && avgEnergy < 0.4) genres.push("Ambient");
+  if (avgAcousticness < 0.3 && avgEnergy > 0.6) genres.push("Rock");
+  if (genres.length === 0) genres.push("Pop", "Indie");
 
   // Create description
-  const descriptions = [
-    `${mood.toLowerCase()} ${energy.toLowerCase()} energy`,
-    `${genres.slice(0, 2).join(" and ")} vibes`,
-    avgTempo > 120 ? "upbeat tempo" : avgTempo < 90 ? "relaxed pace" : "moderate rhythm",
-  ];
-  const description = `A ${descriptions.join(", ")} collection that captures your musical essence.`;
-
-  // Generate search terms
-  const searchTerms = [
-    `${mood.toLowerCase()} ${genres[0]?.toLowerCase() || "music"}`,
-    `${energy.toLowerCase()} energy ${genres[0]?.toLowerCase() || "vibes"}`,
-    `${mood.toLowerCase()} ${avgTempo > 120 ? "upbeat" : avgTempo < 90 ? "chill" : "moderate"}`,
-  ];
-
-  return {
-    mood,
-    energy,
-    genres: genres.slice(0, 3),
-    description,
-    searchTerms,
+  const descriptions: Record<string, string> = {
+    "Joyful-High": "Your music radiates pure energy and happiness! You're the life of the party.",
+    "Joyful-Medium": "You have a sunny disposition that shows in your uplifting music taste.",
+    "Joyful-Low": "You appreciate gentle, happy vibes that bring a smile without overwhelming.",
+    "Upbeat-High": "Your playlist is all about positive energy and getting things done!",
+    "Upbeat-Medium": "You strike a perfect balance between good vibes and relaxation.",
+    "Upbeat-Low": "You enjoy chill, positive music that keeps spirits high without the intensity.",
+    "Reflective-High": "Intense and thoughtful - your music choices suggest deep emotional intelligence.",
+    "Reflective-Medium": "You're a contemplative soul who enjoys music with depth and meaning.",
+    "Reflective-Low": "Your taste leans towards peaceful, introspective soundscapes.",
+    "Melancholic-High": "Dramatic and emotional - you connect deeply with powerful, moving music.",
+    "Melancholic-Medium": "You appreciate the beauty in sadness and find comfort in emotional music.",
+    "Melancholic-Low": "Your music taste is moody and atmospheric, perfect for quiet moments.",
   };
+
+  const description = descriptions[`${mood}-${energy}`] || "Your music taste is wonderfully unique!";
+
+  // Generate search terms for recommendations
+  const searchTerms = [
+    mood.toLowerCase(),
+    energy.toLowerCase() + " energy",
+    ...genres.slice(0, 2).map(g => g.toLowerCase()),
+  ];
+
+  return { mood, energy, genres: genres.slice(0, 3), description, searchTerms };
 }
 
 serve(async (req) => {
@@ -209,36 +186,42 @@ serve(async (req) => {
       );
     }
 
-    // Fetch tracks
+    console.log(`Analyzing music - Playlist ID: ${playlistId || "liked songs"}`);
+
+    // Get tracks
     let tracks: Track[];
-    if (playlistId === "liked") {
-      tracks = await getLikedTracks(accessToken, 50);
-    } else {
+    if (playlistId && playlistId !== "liked") {
       tracks = await getPlaylistTracks(accessToken, playlistId);
+    } else {
+      tracks = await getLikedTracks(accessToken);
     }
+
+    console.log(`Found ${tracks.length} tracks to analyze`);
 
     if (tracks.length === 0) {
       return new Response(
-        JSON.stringify({ error: "No tracks found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ 
+          error: "No tracks found in selection",
+          mood: "Unknown",
+          energy: "Medium",
+          genres: ["Mixed"],
+          description: "No tracks found to analyze.",
+          searchTerms: ["popular", "trending"],
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // Get track IDs (limit to 50 for analysis)
-    const trackIds = tracks.slice(0, 50).map((t) => t.id);
 
     // Get audio features
+    const trackIds = tracks.map(t => t.id);
     const features = await getAudioFeatures(accessToken, trackIds);
 
-    if (features.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Failed to analyze audio features" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    console.log(`Retrieved ${features.length} audio features`);
 
-    // Analyze vibe
-    const analysis = analyzeVibe(features);
+    // Analyze and return results
+    const analysis = analyzeFeatures(features);
+
+    console.log(`Analysis complete: ${analysis.mood} mood, ${analysis.energy} energy`);
 
     return new Response(
       JSON.stringify(analysis),
@@ -253,4 +236,3 @@ serve(async (req) => {
     );
   }
 });
-
