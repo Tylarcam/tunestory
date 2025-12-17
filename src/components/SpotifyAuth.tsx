@@ -120,8 +120,6 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
   };
 
   const handleLogin = () => {
-    // Get client ID from environment or use a backend endpoint to get it
-    // For security, you might want to fetch this from your backend
     const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
     
     if (!clientId) {
@@ -150,7 +148,43 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       show_dialog: "true",
     })}`;
 
-    window.location.href = authUrl;
+    // Open in popup window for better iframe compatibility
+    const width = 500;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      authUrl,
+      "Spotify Login",
+      `width=${width},height=${height},left=${left},top=${top},popup=yes`
+    );
+
+    // Poll for the popup to close and check for auth code
+    const pollTimer = setInterval(() => {
+      try {
+        if (popup?.closed) {
+          clearInterval(pollTimer);
+          // Check if we got a code in the URL
+          const urlParams = new URLSearchParams(window.location.search);
+          const code = urlParams.get("code");
+          if (code) {
+            handleOAuthCallback(code);
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } else if (popup?.location?.href?.includes(window.location.origin)) {
+          const popupUrl = new URL(popup.location.href);
+          const code = popupUrl.searchParams.get("code");
+          if (code) {
+            clearInterval(pollTimer);
+            popup.close();
+            handleOAuthCallback(code);
+          }
+        }
+      } catch (e) {
+        // Cross-origin error expected while on Spotify domain
+      }
+    }, 500);
   };
 
   const handleLogout = () => {
