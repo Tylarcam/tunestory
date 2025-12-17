@@ -17,6 +17,10 @@ interface SpotifyTrack {
   external_urls: { spotify: string };
 }
 
+interface PlaylistTrack {
+  track: SpotifyTrack | null;
+}
+
 async function getSpotifyToken(): Promise<string> {
   const clientId = Deno.env.get("SPOTIFY_CLIENT_ID");
   const clientSecret = Deno.env.get("SPOTIFY_CLIENT_SECRET");
@@ -64,16 +68,193 @@ async function searchTracks(token: string, query: string, limit = 5): Promise<Sp
   return data.tracks?.items || [];
 }
 
+async function getUserLikedSongs(userToken: string, limit = 50): Promise<SpotifyTrack[]> {
+  const allTracks: SpotifyTrack[] = [];
+  let nextUrl: string | null = `https://api.spotify.com/v1/me/tracks?limit=${limit}`;
+  
+  // Fetch up to 200 tracks (4 pages)
+  let pageCount = 0;
+  while (nextUrl && pageCount < 4) {
+    const response: Response = await fetch(nextUrl, {
+      headers: {
+        Authorization: `Bearer ${userToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error("Error fetching liked songs:", await response.text());
+      break;
+    }
+
+    const data: { items: { track: SpotifyTrack }[]; next: string | null } = await response.json();
+    const tracks = data.items
+      .map((item) => item.track)
+      .filter((track): track is SpotifyTrack => track !== null);
+    allTracks.push(...tracks);
+    nextUrl = data.next;
+    pageCount++;
+  }
+
+  console.log(`Fetched ${allTracks.length} liked songs`);
+  return allTracks;
+}
+
+async function getPlaylistTracks(userToken: string, playlistId: string, limit = 50): Promise<SpotifyTrack[]> {
+  const allTracks: SpotifyTrack[] = [];
+  let nextUrl: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}`;
+  
+  // Fetch up to 200 tracks (4 pages)
+  let pageCount = 0;
+  while (nextUrl && pageCount < 4) {
+    const response: Response = await fetch(nextUrl, {
+      headers: {
+        Authorization: `Bearer ${userToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error("Error fetching playlist tracks:", await response.text());
+      break;
+    }
+
+    const data: { items: PlaylistTrack[]; next: string | null } = await response.json();
+    const tracks = data.items
+      .map((item) => item.track)
+      .filter((track): track is SpotifyTrack => track !== null);
+    allTracks.push(...tracks);
+    nextUrl = data.next;
+    pageCount++;
+  }
+
+  console.log(`Fetched ${allTracks.length} playlist tracks`);
+  return allTracks;
+}
+
+function scoreTrackRelevance(
+  track: SpotifyTrack,
+  searchTerms: string[],
+  mood: string,
+  genres: string[]
+): number {
+  let score = 0;
+  const trackName = track.name.toLowerCase();
+  const artistNames = track.artists.map(a => a.name.toLowerCase()).join(" ");
+  const albumName = track.album.name.toLowerCase();
+  const fullText = `${trackName} ${artistNames} ${albumName}`;
+
+  // Check search terms
+  for (const term of searchTerms) {
+    const termLower = term.toLowerCase();
+    if (fullText.includes(termLower)) {
+      score += 10;
+    }
+    // Partial match
+    const words = termLower.split(" ");
+    for (const word of words) {
+      if (word.length > 3 && fullText.includes(word)) {
+        score += 3;
+      }
+    }
+  }
+
+  // Check mood in track/album name
+  if (mood && fullText.includes(mood.toLowerCase())) {
+    score += 5;
+  }
+
+  // Check genres
+  for (const genre of genres) {
+    if (fullText.includes(genre.toLowerCase())) {
+      score += 5;
+    }
+  }
+
+  // Add randomness to prevent always showing same tracks
+  score += Math.random() * 5;
+
+  return score;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { searchTerms, genres, mood, energy, visualElements } = await req.json();
+    const { 
+      searchTerms, 
+      genres, 
+      mood, 
+      energy, 
+      visualElements,
+      // New parameters for user library mode
+      spotifyAccessToken,
+      playlistId,
+      useUserLibrary
+    } = await req.json();
 
-    console.log("Getting recommendations for:", { searchTerms, genres, mood, energy, visualElements });
+    console.log("Getting recommendations for:", { 
+      searchTerms, 
+      genres, 
+      mood, 
+      energy, 
+      useUserLibrary, 
+      hasPlaylistId: !!playlistId 
+    });
 
+    // If using user's library, filter their tracks instead of searching
+    if (useUserLibrary && spotifyAccessToken) {
+      console.log("Using user library mode");
+      
+      let userTracks: SpotifyTrack[];
+      
+      if (playlistId) {
+        userTracks = await getPlaylistTracks(spotifyAccessToken, playlistId);
+      } else {
+        userTracks = await getUserLikedSongs(spotifyAccessToken);
+      }
+
+      if (userTracks.length === 0) {
+        return new Response(
+          JSON.stringify({ 
+            recommendations: [],
+            message: "No tracks found in your library" 
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Score and sort tracks by relevance to mood/genres
+      const scoredTracks = userTracks.map(track => ({
+        track,
+        score: scoreTrackRelevance(track, searchTerms || [], mood || "", genres || [])
+      }));
+
+      scoredTracks.sort((a, b) => b.score - a.score);
+
+      // Take top 5 most relevant tracks
+      const topTracks = scoredTracks.slice(0, 5).map(st => st.track);
+
+      console.log(`Selected ${topTracks.length} tracks from user library`);
+
+      const recommendations = topTracks.map((track) => ({
+        id: track.id,
+        name: track.name,
+        artist: track.artists.map((a) => a.name).join(", "),
+        album: track.album.name,
+        albumArt: track.album.images[0]?.url || "",
+        previewUrl: track.preview_url,
+        spotifyUrl: track.external_urls.spotify,
+        genre: genres?.[0] || "From Your Library",
+      }));
+
+      return new Response(
+        JSON.stringify({ recommendations }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Default behavior: search Spotify catalog
     const token = await getSpotifyToken();
     
     // Build search queries from different inputs with multiple strategies
@@ -81,13 +262,12 @@ serve(async (req) => {
     
     // Strategy 1: Use provided searchTerms (highest priority - these are optimized for Spotify)
     if (searchTerms && Array.isArray(searchTerms) && searchTerms.length > 0) {
-      // Use up to 4 search terms
-      queries.push(...searchTerms.slice(0, 4).filter(term => term && term.trim().length > 0));
+      queries.push(...searchTerms.slice(0, 4).filter((term: string) => term && term.trim().length > 0));
     }
     
     // Strategy 2: Combine mood + genre (more specific)
     if (genres && Array.isArray(genres) && genres.length > 0 && mood) {
-      genres.slice(0, 2).forEach(genre => {
+      genres.slice(0, 2).forEach((genre: string) => {
         const query = `${mood.toLowerCase()} ${genre.toLowerCase()}`.trim();
         if (query.length > 0) {
           queries.push(query);
@@ -97,7 +277,7 @@ serve(async (req) => {
     
     // Strategy 3: Energy + genre combinations
     if (genres && Array.isArray(genres) && genres.length > 0 && energy) {
-      genres.slice(0, 2).forEach(genre => {
+      genres.slice(0, 2).forEach((genre: string) => {
         const energyLower = energy.toLowerCase();
         queries.push(`${energyLower} ${genre.toLowerCase()}`);
       });
@@ -120,7 +300,7 @@ serve(async (req) => {
     
     // Strategy 6: Genre-only fallbacks (if we don't have enough queries)
     if (queries.length < 3 && genres && Array.isArray(genres) && genres.length > 0) {
-      genres.slice(0, 2).forEach(genre => {
+      genres.slice(0, 2).forEach((genre: string) => {
         queries.push(genre.toLowerCase());
       });
     }

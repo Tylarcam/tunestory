@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { LoadingState } from "@/components/LoadingState";
 import { MoodDisplay, type MoodData } from "@/components/MoodDisplay";
@@ -8,11 +8,13 @@ import { RegenerateButton } from "@/components/RegenerateButton";
 import { VibeModeToggle, type VibeMode } from "@/components/VibeModeToggle";
 import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { PlaylistSelector } from "@/components/PlaylistSelector";
+import { MusicSourceSelector } from "@/components/MusicSourceSelector";
 import { Music2, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 
-type AppState = "upload" | "analyzing" | "gathering" | "results";
+type AppState = "upload" | "source-select" | "analyzing" | "gathering" | "results";
+type MusicSourceType = "random" | "playlist";
 
 const Index = () => {
   const [state, setState] = useState<AppState>("upload");
@@ -26,19 +28,30 @@ const Index = () => {
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<string | "liked">("liked");
+  
+  // Track which source was used for regeneration
+  const lastSourceRef = useRef<{ type: MusicSourceType; token?: string; playlist?: string | "liked" }>({ type: "random" });
 
-  const handleImageSelect = useCallback(async (file: File) => {
+  // Called when image is selected - now goes to source selection
+  const handleImageSelect = useCallback((file: File) => {
     setSelectedImage(file);
     const previewUrl = URL.createObjectURL(file);
     setImagePreviewUrl(previewUrl);
+    setState("source-select");
+  }, []);
+
+  // Analyze image and get random recommendations
+  const analyzeImageAndGetRandom = useCallback(async () => {
+    if (!selectedImage) return;
     
+    lastSourceRef.current = { type: "random" };
     setState("analyzing");
     
     try {
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve) => {
         reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(selectedImage);
       });
       const imageBase64 = await base64Promise;
 
@@ -69,12 +82,6 @@ const Index = () => {
 
       setState("gathering");
 
-      // Validate that we have the required data
-      if (!analysis.searchTerms || !Array.isArray(analysis.searchTerms) || analysis.searchTerms.length === 0) {
-        console.warn("No searchTerms in analysis, using fallback");
-        analysis.searchTerms = [`${analysis.mood || "music"} ${analysis.genres?.[0] || ""}`.trim()];
-      }
-
       const recsResponse = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-recommendations`,
         {
@@ -88,7 +95,6 @@ const Index = () => {
             genres: analysis.genres,
             mood: analysis.mood,
             energy: analysis.energy,
-            visualElements: analysis.visualElements || null, // Pass visual elements if available
           }),
         }
       );
@@ -110,7 +116,91 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, []);
+  }, [selectedImage]);
+
+  // Analyze image and filter from user's playlist
+  const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
+    if (!selectedImage) return;
+    
+    lastSourceRef.current = { type: "playlist", token: accessToken, playlist: playlistId };
+    setState("analyzing");
+    
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(selectedImage);
+      });
+      const imageBase64 = await base64Promise;
+
+      // First analyze the image
+      const analyzeResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-image`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ imageBase64 }),
+        }
+      );
+
+      if (!analyzeResponse.ok) {
+        const error = await analyzeResponse.json();
+        throw new Error(error.error || "Failed to analyze image");
+      }
+
+      const analysis = await analyzeResponse.json();
+      setMoodData({
+        mood: analysis.mood,
+        energy: analysis.energy,
+        genres: analysis.genres,
+        description: analysis.description,
+      });
+
+      setState("gathering");
+
+      // Get recommendations from user's playlist
+      const recsResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-recommendations`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({
+            searchTerms: analysis.searchTerms,
+            genres: analysis.genres,
+            mood: analysis.mood,
+            energy: analysis.energy,
+            // Include Spotify token and playlist for filtering
+            spotifyAccessToken: accessToken,
+            playlistId: playlistId === "liked" ? null : playlistId,
+            useUserLibrary: true,
+          }),
+        }
+      );
+
+      if (!recsResponse.ok) {
+        const error = await recsResponse.json();
+        throw new Error(error.error || "Failed to get recommendations");
+      }
+
+      const { recommendations } = await recsResponse.json();
+      setSongs(recommendations);
+      setState("results");
+    } catch (error) {
+      console.error("Error:", error);
+      toast({
+        title: "Something went wrong",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      });
+      setState("upload");
+    }
+  }, [selectedImage]);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -203,15 +293,20 @@ const Index = () => {
 
   const handleRegenerate = useCallback(async () => {
     setPlayingId(null);
-    if (vibeMode === "photo" && selectedImage) {
-      handleImageSelect(selectedImage);
+    if (vibeMode === "photo") {
+      const { type, token, playlist } = lastSourceRef.current;
+      if (type === "playlist" && token && playlist) {
+        analyzeImageAndFilterPlaylist(token, playlist);
+      } else {
+        analyzeImageAndGetRandom();
+      }
     } else if (vibeMode === "music") {
       handleMusicAnalysis();
     }
-  }, [vibeMode, selectedImage, handleImageSelect, handleMusicAnalysis]);
+  }, [vibeMode, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis]);
 
   const handleModeChange = (mode: VibeMode) => {
-    if (state === "results") {
+    if (state === "results" || state === "source-select") {
       handleClear();
     }
     setVibeMode(mode);
@@ -259,12 +354,21 @@ const Index = () => {
 
         {/* Main content */}
         <main className="space-y-6">
-          {/* Photo Mode */}
+          {/* Photo Mode - Upload */}
           {vibeMode === "photo" && state === "upload" && (
             <PhotoUpload
               onImageSelect={handleImageSelect}
               selectedImage={selectedImage}
               onClear={handleClear}
+            />
+          )}
+
+          {/* Photo Mode - Source Selection */}
+          {vibeMode === "photo" && state === "source-select" && imagePreviewUrl && (
+            <MusicSourceSelector
+              imagePreviewUrl={imagePreviewUrl}
+              onSelectRandom={analyzeImageAndGetRandom}
+              onSelectPlaylist={analyzeImageAndFilterPlaylist}
             />
           )}
 
