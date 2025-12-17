@@ -1,14 +1,14 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { LoadingState } from "@/components/LoadingState";
 import { MoodDisplay, type MoodData } from "@/components/MoodDisplay";
 import { SongCard, type Song } from "@/components/SongCard";
 import { ShareButtons } from "@/components/ShareButtons";
 import { RegenerateButton } from "@/components/RegenerateButton";
-import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { VibeModeToggle, type VibeMode } from "@/components/VibeModeToggle";
+import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { PlaylistSelector } from "@/components/PlaylistSelector";
-import { Music2 } from "lucide-react";
+import { Music2, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 
@@ -17,24 +17,24 @@ type AppState = "upload" | "analyzing" | "gathering" | "results";
 const Index = () => {
   const [state, setState] = useState<AppState>("upload");
   const [vibeMode, setVibeMode] = useState<VibeMode>("photo");
-  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | "liked">("liked");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [moodData, setMoodData] = useState<MoodData | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  
+  // Music mode state
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<string | "liked">("liked");
 
   const handleImageSelect = useCallback(async (file: File) => {
     setSelectedImage(file);
     const previewUrl = URL.createObjectURL(file);
     setImagePreviewUrl(previewUrl);
     
-    // Start analysis
     setState("analyzing");
     
     try {
-      // Convert image to base64
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve) => {
         reader.onload = () => resolve(reader.result as string);
@@ -42,7 +42,6 @@ const Index = () => {
       });
       const imageBase64 = await base64Promise;
 
-      // Call analyze-image edge function
       const analyzeResponse = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-image`,
         {
@@ -68,7 +67,6 @@ const Index = () => {
         description: analysis.description,
       });
 
-      // Get music recommendations
       setState("gathering");
 
       const recsResponse = await fetch(
@@ -107,36 +105,19 @@ const Index = () => {
     }
   }, []);
 
-  const handleClear = useCallback(() => {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    setSelectedImage(null);
-    setImagePreviewUrl(null);
-    setMoodData(null);
-    setSongs([]);
-    setPlayingId(null);
-    setState("upload");
-  }, [imagePreviewUrl]);
-
-  const handleModeChange = useCallback((mode: VibeMode) => {
-    setVibeMode(mode);
-    handleClear();
-  }, [handleClear]);
-
   const handleMusicAnalysis = useCallback(async () => {
-    if (!spotifyToken || !selectedPlaylistId) {
+    if (!spotifyToken) {
       toast({
-        title: "Spotify connection required",
-        description: "Please connect to Spotify and select a playlist or liked songs.",
+        title: "Connect Spotify",
+        description: "Please connect your Spotify account first",
         variant: "destructive",
       });
       return;
     }
 
     setState("analyzing");
-    setPlayingId(null);
 
     try {
-      // Call analyze-music edge function
       const analyzeResponse = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-music`,
         {
@@ -147,7 +128,7 @@ const Index = () => {
           },
           body: JSON.stringify({
             accessToken: spotifyToken,
-            playlistId: selectedPlaylistId,
+            playlistId: selectedPlaylist === "liked" ? null : selectedPlaylist,
           }),
         }
       );
@@ -165,7 +146,6 @@ const Index = () => {
         description: analysis.description,
       });
 
-      // Get music recommendations
       setState("gathering");
 
       const recsResponse = await fetch(
@@ -202,7 +182,17 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [spotifyToken, selectedPlaylistId]);
+  }, [spotifyToken, selectedPlaylist]);
+
+  const handleClear = useCallback(() => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setSelectedImage(null);
+    setImagePreviewUrl(null);
+    setMoodData(null);
+    setSongs([]);
+    setPlayingId(null);
+    setState("upload");
+  }, [imagePreviewUrl]);
 
   const handleRegenerate = useCallback(async () => {
     setPlayingId(null);
@@ -212,6 +202,13 @@ const Index = () => {
       handleMusicAnalysis();
     }
   }, [vibeMode, selectedImage, handleImageSelect, handleMusicAnalysis]);
+
+  const handleModeChange = (mode: VibeMode) => {
+    if (state === "results") {
+      handleClear();
+    }
+    setVibeMode(mode);
+  };
 
   const handlePlay = (id: string) => {
     setPlayingId(id);
@@ -232,7 +229,7 @@ const Index = () => {
 
       <div className="container max-w-2xl mx-auto px-4 py-12">
         {/* Header */}
-        <header className="text-center mb-12 animate-fade-in-up">
+        <header className="text-center mb-8 animate-fade-in-up">
           <div className="inline-flex items-center gap-3 mb-4">
             <div className="p-3 rounded-xl bg-primary/20 glow-primary">
               <Music2 className="w-8 h-8 text-primary" />
@@ -241,65 +238,71 @@ const Index = () => {
               TuneStory
             </h1>
           </div>
-          <p className="text-muted-foreground text-lg">
+          <p className="text-muted-foreground text-lg mb-6">
             Discover the perfect soundtrack for your moments
           </p>
+          
+          {/* Mode Toggle */}
+          <VibeModeToggle
+            mode={vibeMode}
+            onModeChange={handleModeChange}
+            disabled={state === "analyzing" || state === "gathering"}
+          />
         </header>
 
         {/* Main content */}
-        <main className="space-y-8">
-          {/* Mode Toggle */}
-          <div className="flex justify-center animate-fade-in-up">
-            <VibeModeToggle
-              mode={vibeMode}
-              onModeChange={handleModeChange}
-              disabled={state !== "upload"}
+        <main className="space-y-6">
+          {/* Photo Mode */}
+          {vibeMode === "photo" && state === "upload" && (
+            <PhotoUpload
+              onImageSelect={handleImageSelect}
+              selectedImage={selectedImage}
+              onClear={handleClear}
             />
-          </div>
+          )}
 
-          {state === "upload" && (
-            <div className="space-y-6">
-              {vibeMode === "photo" ? (
-                <PhotoUpload
-                  onImageSelect={handleImageSelect}
-                  selectedImage={selectedImage}
-                  onClear={handleClear}
-                />
-              ) : (
-                <div className="space-y-4">
-                  <SpotifyAuth onAuthChange={setSpotifyToken} />
-                  {spotifyToken && (
-                    <>
-                      <PlaylistSelector
-                        accessToken={spotifyToken}
-                        onSelectionChange={setSelectedPlaylistId}
-                      />
-                      <Button
-                        onClick={handleMusicAnalysis}
-                        className="w-full"
-                        disabled={!selectedPlaylistId}
-                      >
-                        Analyze My Music
-                      </Button>
-                    </>
-                  )}
-                </div>
+          {/* Music Mode */}
+          {vibeMode === "music" && state === "upload" && (
+            <div className="space-y-6 animate-fade-in-up">
+              <SpotifyAuth
+                onAuthChange={setSpotifyToken}
+              />
+              
+              {spotifyToken && (
+                <>
+                  <PlaylistSelector
+                    accessToken={spotifyToken}
+                    onSelectionChange={setSelectedPlaylist}
+                    disabled={state !== "upload"}
+                  />
+                  
+                  <Button
+                    onClick={handleMusicAnalysis}
+                    className="w-full py-6 text-lg font-semibold glow-primary"
+                    size="lg"
+                  >
+                    <Sparkles className="w-5 h-5 mr-2" />
+                    Analyze My Music
+                  </Button>
+                </>
               )}
             </div>
           )}
 
+          {/* Loading States */}
           {(state === "analyzing" || state === "gathering") && (
             <LoadingState
               message={state === "analyzing" ? "Analyzing your vibe..." : "Finding your perfect tracks..."}
-              imageUrl={imagePreviewUrl || undefined}
+              imageUrl={vibeMode === "photo" ? imagePreviewUrl || undefined : undefined}
             />
           )}
 
+          {/* Results */}
           {state === "results" && (
             <div className="space-y-6">
-              {/* Image preview with mood */}
+              {/* Image preview with mood (photo mode) */}
               <div className="grid md:grid-cols-2 gap-6">
-                {imagePreviewUrl && (
+                {vibeMode === "photo" && imagePreviewUrl && (
                   <div className="glass-card p-2 animate-fade-in-up">
                     <div className="aspect-square rounded-xl overflow-hidden">
                       <img
@@ -311,7 +314,11 @@ const Index = () => {
                   </div>
                 )}
                 
-                {moodData && <MoodDisplay moodData={moodData} />}
+                {moodData && (
+                  <div className={vibeMode === "music" ? "md:col-span-2" : ""}>
+                    <MoodDisplay moodData={moodData} />
+                  </div>
+                )}
               </div>
 
               {/* Song recommendations */}
@@ -352,7 +359,7 @@ const Index = () => {
                   onClick={handleClear}
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4"
                 >
-                  {vibeMode === "photo" ? "Try a different photo" : "Try different music"}
+                  {vibeMode === "photo" ? "Try a different photo" : "Analyze different music"}
                 </button>
               </div>
             </div>

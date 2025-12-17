@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.get-recommendations]
 verify_jwt = false
+
+[functions.spotify-auth]
+verify_jwt = false
+
+[functions.analyze-music]
+verify_jwt = false
