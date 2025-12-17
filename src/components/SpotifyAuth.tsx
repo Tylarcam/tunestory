@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { LogIn, LogOut } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -18,6 +18,39 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
   const [user, setUser] = useState<SpotifyUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
+  const fetchUserProfile = useCallback(async (token: string) => {
+    try {
+      const response = await fetch("https://api.spotify.com/v1/me", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Failed to fetch user profile:", error);
+    }
+  }, []);
+
+  const handleAuthSuccess = useCallback((token: string, expiresIn: number) => {
+    const expiryTime = Date.now() + expiresIn * 1000;
+    localStorage.setItem("spotify_access_token", token);
+    localStorage.setItem("spotify_token_expiry", expiryTime.toString());
+
+    setAccessToken(token);
+    setIsAuthenticated(true);
+    onAuthChange(token);
+    fetchUserProfile(token);
+
+    toast({
+      title: "Connected to Spotify!",
+      description: "You can now use your playlists and liked songs.",
+    });
+  }, [onAuthChange, fetchUserProfile]);
+
   // Check for existing auth on mount
   useEffect(() => {
     const storedToken = localStorage.getItem("spotify_access_token");
@@ -36,93 +69,23 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
         localStorage.removeItem("spotify_token_expiry");
       }
     }
+  }, [onAuthChange, fetchUserProfile]);
 
-    // Handle OAuth callback
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get("code");
-    const error = urlParams.get("error");
-
-    if (error) {
-      toast({
-        title: "Authentication failed",
-        description: "Could not connect to Spotify. Please try again.",
-        variant: "destructive",
-      });
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (code) {
-      handleOAuthCallback(code);
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [onAuthChange]);
-
-  const handleOAuthCallback = async (code: string) => {
-    try {
-      // Use the same redirect_uri that was used for authorization
-      const redirectUri = `${window.location.origin}/`;
+  // Listen for postMessage from the callback window
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Verify origin for security
+      if (event.origin !== window.location.origin) return;
       
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/spotify-auth`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({ code, redirect_uri: redirectUri }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("Token exchange failed:", errorData);
-        throw new Error(errorData.error || "Failed to exchange code for token");
+      if (event.data?.type === "SPOTIFY_AUTH_SUCCESS") {
+        const { access_token, expires_in } = event.data;
+        handleAuthSuccess(access_token, expires_in);
       }
+    };
 
-      const data = await response.json();
-      const { access_token, expires_in } = data;
-
-      // Store token with expiry
-      const expiryTime = Date.now() + expires_in * 1000;
-      localStorage.setItem("spotify_access_token", access_token);
-      localStorage.setItem("spotify_token_expiry", expiryTime.toString());
-
-      setAccessToken(access_token);
-      setIsAuthenticated(true);
-      onAuthChange(access_token);
-      fetchUserProfile(access_token);
-
-      toast({
-        title: "Connected to Spotify!",
-        description: "You can now use your playlists and liked songs.",
-      });
-    } catch (error) {
-      console.error("OAuth callback error:", error);
-      toast({
-        title: "Authentication failed",
-        description: error instanceof Error ? error.message : "Could not connect to Spotify. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const fetchUserProfile = async (token: string) => {
-    try {
-      const response = await fetch("https://api.spotify.com/v1/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error("Failed to fetch user profile:", error);
-    }
-  };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [handleAuthSuccess]);
 
   const handleLogin = () => {
     const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
@@ -136,8 +99,8 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       return;
     }
 
-    // Use consistent redirect URI (root path)
-    const redirectUri = `${window.location.origin}/`;
+    // Use /callback route for the redirect
+    const redirectUri = `${window.location.origin}/callback`;
     const scopes = [
       "user-read-private",
       "user-read-email",
@@ -154,8 +117,8 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       show_dialog: "true",
     })}`;
 
-    // Use full page redirect (more reliable than popup)
-    window.location.href = authUrl;
+    // Open in new tab - this escapes the Lovable iframe!
+    window.open(authUrl, "_blank", "width=500,height=700,scrollbars=yes");
   };
 
   const handleLogout = () => {
