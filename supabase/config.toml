@@ -1,1 +1,7 @@
 project_id = "upgonsupucpgonhhanjd"
+
+[functions.analyze-image]
+verify_jwt = false
+
+[functions.get-recommendations]
+verify_jwt = false
