@@ -134,7 +134,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImage, musicMode, handleGenerateMusic]);
+  }, [selectedImage]);
 
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
@@ -479,7 +479,7 @@ const Index = () => {
                   onModeChange={(newMode) => {
                     setMusicMode(newMode);
                   }}
-                  disabled={state === "analyzing" || state === "gathering"}
+                  disabled={false}
                 />
               </div>
               
@@ -552,12 +552,10 @@ const Index = () => {
                     }}
                     className="w-full py-6 text-lg font-semibold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
                     size="lg"
-                    disabled={isGenerating || state === "analyzing" || state === "gathering"}
+                    disabled={isGenerating}
                   >
                     <Sparkles className="w-5 h-5 mr-2" />
-                    {isGenerating || state === "analyzing" || state === "gathering" 
-                      ? "Generating Music..." 
-                      : "Generate AI Music"}
+                    {isGenerating ? "Generating Music..." : "Generate AI Music"}
                   </Button>
                   <p className="text-sm text-muted-foreground">
                     Create original music that matches your photo's vibe using AudioCraft (20-40 seconds)
