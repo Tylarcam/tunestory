@@ -6,8 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// AudioCraft MusicGen via Hugging Face
-const HF_API_URL = 'https://api-inference.huggingface.co/models/facebook/musicgen-large';
+// AudioCraft MusicGen via Hugging Face (using new router endpoint)
+const HF_API_URL = 'https://router.huggingface.co/hf-inference/models/facebook/musicgen-large';
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
