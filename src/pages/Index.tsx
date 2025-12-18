@@ -260,26 +260,44 @@ const Index = () => {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          const text = await response.text();
+          errorData = { error: text || `HTTP ${response.status} error` };
+        }
+        
+        console.error('Generation API error:', response.status, errorData);
         
         // Handle retryable errors (503 - model loading)
         if (response.status === 503 || errorData.retryable) {
           toast({
             title: "Model Loading",
-            description: errorData.error || "Model is loading. Please try again in 20-30 seconds.",
+            description: errorData.error || errorData.details || "Model is loading. Please try again in 20-30 seconds.",
             variant: "default",
           });
           setState("upload");
           return;
         }
+
+        // Handle specific error cases
+        if (response.status === 401) {
+          throw new Error(errorData.error || errorData.details || "Invalid API key. Please check Hugging Face API key configuration.");
+        }
+
+        if (response.status === 404) {
+          throw new Error(errorData.error || errorData.details || "Model not found. MusicGen may not be available via Inference API.");
+        }
         
-        throw new Error(errorData.error || "Failed to generate music");
+        throw new Error(errorData.error || errorData.details || `Generation failed: ${response.status}`);
       }
 
       const data = await response.json();
 
       if (!data.success) {
-        throw new Error(data.error || "Failed to generate music");
+        console.error('Generation failed:', data);
+        throw new Error(data.error || data.details || "Failed to generate music");
       }
 
       setGeneratedTrack(data);

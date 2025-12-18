@@ -70,35 +70,53 @@ serve(async (req) => {
     }
   
     // Call AudioCraft MusicGen via Hugging Face
-    console.log('🎵 Calling AudioCraft MusicGen...');
+    console.log('🎵 Calling AudioCraft MusicGen with prompt:', musicPrompt);
   
+    // Try simplified request format first (MusicGen via Inference API might need simpler format)
+    const requestBody = {
+      inputs: musicPrompt,
+      parameters: {
+        max_new_tokens: 256,
+        do_sample: true,
+        temperature: 1.0,
+        guidance_scale: 3.0
+      },
+      options: {
+        wait_for_model: true,
+        use_cache: false
+      }
+    };
+
+    console.log('Request URL:', HF_API_URL);
+    console.log('Request body:', JSON.stringify(requestBody, null, 2));
+
     const response = await fetch(HF_API_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        inputs: musicPrompt,
-        parameters: {
-          // MusicGen-specific parameters
-          max_new_tokens: 256,     // ~10-30 seconds of audio
-          do_sample: true,
-          temperature: 1.0,        // Control randomness (0.0-2.0)
-          top_k: 250,
-          top_p: 0.0,
-          guidance_scale: 3.0      // How closely to follow prompt
-        },
-        options: {
-          wait_for_model: true,    // Wait if model is loading (20-40s)
-          use_cache: false         // Fresh generation each time
-        }
-      })
+      body: JSON.stringify(requestBody)
     });
   
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ AudioCraft API error:', response.status, errorText);
+      console.error('Request body was:', JSON.stringify({
+        inputs: musicPrompt,
+        parameters: {
+          max_new_tokens: 256,
+          do_sample: true,
+          temperature: 1.0,
+          top_k: 250,
+          top_p: 0.0,
+          guidance_scale: 3.0
+        },
+        options: {
+          wait_for_model: true,
+          use_cache: false
+        }
+      }));
     
       // Handle common errors
       if (response.status === 503) {
@@ -106,7 +124,8 @@ serve(async (req) => {
           JSON.stringify({ 
             success: false,
             error: 'Model is loading. Please try again in 20-30 seconds.',
-            retryable: true
+            retryable: true,
+            details: errorText
           }),
           { 
             status: 503,
@@ -114,8 +133,33 @@ serve(async (req) => {
           }
         );
       }
+
+      if (response.status === 401) {
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: 'Invalid Hugging Face API key. Please check your HUGGINGFACE_API_KEY secret.',
+            details: errorText
+          }),
+          { 
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          }
+        );
+      }
     
-      throw new Error(`AudioCraft API error: ${response.status} - ${errorText}`);
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: `AudioCraft API error: ${response.status}`,
+          details: errorText,
+          status: response.status
+        }),
+        { 
+          status: response.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
     }
   
     // Response is audio binary (WAV format)
