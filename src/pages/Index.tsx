@@ -6,6 +6,8 @@ import { SongCard, type Song } from "@/components/SongCard";
 import { ShareButtons } from "@/components/ShareButtons";
 import { RegenerateButton } from "@/components/RegenerateButton";
 import { VibeModeToggle, type VibeMode } from "@/components/VibeModeToggle";
+import { MusicModeToggle, type MusicMode } from "@/components/MusicModeToggle";
+import { GeneratedMusicCard } from "@/components/GeneratedMusicCard";
 import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { PlaylistSelector } from "@/components/PlaylistSelector";
 import { MusicSourceSelector } from "@/components/MusicSourceSelector";
@@ -16,14 +18,30 @@ import { Button } from "@/components/ui/button";
 type AppState = "upload" | "source-select" | "analyzing" | "gathering" | "results";
 type MusicSourceType = "random" | "playlist";
 
+interface GeneratedTrack {
+  success: boolean;
+  audioUrl: string;
+  prompt: string;
+  metadata: {
+    model: string;
+    duration: number;
+    status: string;
+    framework?: string;
+  };
+}
+
 const Index = () => {
   const [state, setState] = useState<AppState>("upload");
   const [vibeMode, setVibeMode] = useState<VibeMode>("photo");
+  const [musicMode, setMusicMode] = useState<MusicMode>("discover");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [moodData, setMoodData] = useState<MoodData | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [generatedTrack, setGeneratedTrack] = useState<GeneratedTrack | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [lastAnalysis, setLastAnalysis] = useState<any>(null); // Store full analysis for regeneration
   
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
@@ -116,7 +134,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImage]);
+  }, [selectedImage, musicMode, handleGenerateMusic]);
 
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
@@ -152,6 +170,7 @@ const Index = () => {
       }
 
       const analysis = await analyzeResponse.json();
+      setLastAnalysis(analysis);
       setMoodData({
         mood: analysis.mood,
         energy: analysis.energy,
@@ -159,38 +178,44 @@ const Index = () => {
         description: analysis.description,
       });
 
-      setState("gathering");
+      // Route to either Discover or Generate based on musicMode
+      if (musicMode === "generate") {
+        await handleGenerateMusic(analysis);
+      } else {
+        setState("gathering");
 
-      // Get recommendations from user's playlist
-      const recsResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-recommendations`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({
-            searchTerms: analysis.searchTerms,
-            genres: analysis.genres,
-            mood: analysis.mood,
-            energy: analysis.energy,
-            // Include Spotify token and playlist for filtering
-            spotifyAccessToken: accessToken,
-            playlistId: playlistId === "liked" ? null : playlistId,
-            useUserLibrary: true,
-          }),
+        // Get recommendations from user's playlist
+        const recsResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-recommendations`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            },
+            body: JSON.stringify({
+              searchTerms: analysis.searchTerms,
+              genres: analysis.genres,
+              mood: analysis.mood,
+              energy: analysis.energy,
+              // Include Spotify token and playlist for filtering
+              spotifyAccessToken: accessToken,
+              playlistId: playlistId === "liked" ? null : playlistId,
+              useUserLibrary: true,
+            }),
+          }
+        );
+
+        if (!recsResponse.ok) {
+          const error = await recsResponse.json();
+          throw new Error(error.error || "Failed to get recommendations");
         }
-      );
 
-      if (!recsResponse.ok) {
-        const error = await recsResponse.json();
-        throw new Error(error.error || "Failed to get recommendations");
+        const { recommendations } = await recsResponse.json();
+        setSongs(recommendations);
+        setGeneratedTrack(null); // Clear generated track when switching to discover
+        setState("results");
       }
-
-      const { recommendations } = await recsResponse.json();
-      setSongs(recommendations);
-      setState("results");
     } catch (error) {
       console.error("Error:", error);
       toast({
@@ -200,7 +225,83 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImage]);
+  }, [selectedImage, musicMode]);
+
+  // Generate music using AudioCraft
+  const handleGenerateMusic = useCallback(async (analysis: any) => {
+    setIsGenerating(true);
+    setState("gathering");
+    
+    try {
+      // Convert energy string to number if needed
+      const energyNum = typeof analysis.energy === 'string'
+        ? analysis.energy === 'High' ? 8 : analysis.energy === 'Medium' ? 5 : 3
+        : analysis.energy;
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({
+            mood: analysis.mood,
+            energy: energyNum,
+            genres: analysis.genres,
+            tempo_bpm: analysis.tempo_bpm,
+            description: analysis.description,
+            setting: analysis.visualElements?.setting || analysis.setting,
+            time_of_day: analysis.visualElements?.timeOfDay || analysis.time_of_day,
+            visualElements: analysis.visualElements || {}
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        
+        // Handle retryable errors (503 - model loading)
+        if (response.status === 503 || errorData.retryable) {
+          toast({
+            title: "Model Loading",
+            description: errorData.error || "Model is loading. Please try again in 20-30 seconds.",
+            variant: "default",
+          });
+          setState("upload");
+          return;
+        }
+        
+        throw new Error(errorData.error || "Failed to generate music");
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to generate music");
+      }
+
+      setGeneratedTrack(data);
+      setSongs([]); // Clear songs when generating
+      setState("results");
+      toast({
+        title: "Music Generated!",
+        description: "Your AI-generated track is ready to play.",
+      });
+
+    } catch (error) {
+      console.error('Generation error:', error);
+      toast({
+        title: "Generation Failed",
+        description: error instanceof Error ? error.message : "Failed to generate music. Please try again.",
+        variant: "destructive",
+      });
+      setState("upload");
+    } finally {
+      setIsGenerating(false);
+    }
+  }, []);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -282,6 +383,7 @@ const Index = () => {
   }, [spotifyToken, selectedPlaylist]);
 
   const handleClear = useCallback(() => {
+    setGeneratedTrack(null);
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     setSelectedImage(null);
     setImagePreviewUrl(null);
@@ -294,16 +396,20 @@ const Index = () => {
   const handleRegenerate = useCallback(async () => {
     setPlayingId(null);
     if (vibeMode === "photo") {
-      const { type, token, playlist } = lastSourceRef.current;
-      if (type === "playlist" && token && playlist) {
-        analyzeImageAndFilterPlaylist(token, playlist);
+      if (musicMode === "generate" && lastAnalysis) {
+        await handleGenerateMusic(lastAnalysis);
       } else {
-        analyzeImageAndGetRandom();
+        const { type, token, playlist } = lastSourceRef.current;
+        if (type === "playlist" && token && playlist) {
+          analyzeImageAndFilterPlaylist(token, playlist);
+        } else {
+          analyzeImageAndGetRandom();
+        }
       }
     } else if (vibeMode === "music") {
       handleMusicAnalysis();
     }
-  }, [vibeMode, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis]);
+  }, [vibeMode, musicMode, lastAnalysis, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis]);
 
   const handleModeChange = (mode: VibeMode) => {
     if (state === "results" || state === "source-select") {
@@ -365,11 +471,100 @@ const Index = () => {
 
           {/* Photo Mode - Source Selection */}
           {vibeMode === "photo" && state === "source-select" && imagePreviewUrl && (
-            <MusicSourceSelector
-              imagePreviewUrl={imagePreviewUrl}
-              onSelectRandom={analyzeImageAndGetRandom}
-              onSelectPlaylist={analyzeImageAndFilterPlaylist}
-            />
+            <div className="space-y-4">
+              {/* Music Mode Toggle (Discover vs Generate) */}
+              <div className="flex justify-center">
+                <MusicModeToggle
+                  mode={musicMode}
+                  onModeChange={(newMode) => {
+                    setMusicMode(newMode);
+                  }}
+                  disabled={state === "analyzing" || state === "gathering"}
+                />
+              </div>
+              
+              {musicMode === "discover" && (
+                <MusicSourceSelector
+                  imagePreviewUrl={imagePreviewUrl}
+                  onSelectRandom={analyzeImageAndGetRandom}
+                  onSelectPlaylist={analyzeImageAndFilterPlaylist}
+                />
+              )}
+              
+              {musicMode === "generate" && (
+                <div className="glass-card p-6 text-center space-y-4">
+                  <div className="aspect-square rounded-xl overflow-hidden mb-4">
+                    <img
+                      src={imagePreviewUrl}
+                      alt="Your photo"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <Button
+                    onClick={async () => {
+                      if (!selectedImage) return;
+                      lastSourceRef.current = { type: "random" };
+                      setState("analyzing");
+                      
+                      try {
+                        const reader = new FileReader();
+                        const base64Promise = new Promise<string>((resolve) => {
+                          reader.onload = () => resolve(reader.result as string);
+                          reader.readAsDataURL(selectedImage);
+                        });
+                        const imageBase64 = await base64Promise;
+                        
+                        const analyzeResponse = await fetch(
+                          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-image`,
+                          {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+                            },
+                            body: JSON.stringify({ imageBase64 }),
+                          }
+                        );
+                        
+                        if (!analyzeResponse.ok) {
+                          const error = await analyzeResponse.json();
+                          throw new Error(error.error || "Failed to analyze image");
+                        }
+                        
+                        const analysis = await analyzeResponse.json();
+                        setLastAnalysis(analysis);
+                        setMoodData({
+                          mood: analysis.mood,
+                          energy: analysis.energy,
+                          genres: analysis.genres,
+                          description: analysis.description,
+                        });
+                        await handleGenerateMusic(analysis);
+                      } catch (error) {
+                        console.error("Error:", error);
+                        toast({
+                          title: "Something went wrong",
+                          description: error instanceof Error ? error.message : "Please try again",
+                          variant: "destructive",
+                        });
+                        setState("source-select");
+                      }
+                    }}
+                    className="w-full py-6 text-lg font-semibold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    size="lg"
+                    disabled={isGenerating || state === "analyzing" || state === "gathering"}
+                  >
+                    <Sparkles className="w-5 h-5 mr-2" />
+                    {isGenerating || state === "analyzing" || state === "gathering" 
+                      ? "Generating Music..." 
+                      : "Generate AI Music"}
+                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    Create original music that matches your photo's vibe using AudioCraft (20-40 seconds)
+                  </p>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Music Mode */}
@@ -403,7 +598,13 @@ const Index = () => {
           {/* Loading States */}
           {(state === "analyzing" || state === "gathering") && (
             <LoadingState
-              message={state === "analyzing" ? "Analyzing your vibe..." : "Finding your perfect tracks..."}
+              message={
+                state === "analyzing" 
+                  ? "Analyzing your vibe..." 
+                  : musicMode === "generate"
+                    ? "Generating your AI music... (this may take 20-40 seconds)"
+                    : "Finding your perfect tracks..."
+              }
               imageUrl={vibeMode === "photo" ? imagePreviewUrl || undefined : undefined}
             />
           )}
@@ -432,23 +633,35 @@ const Index = () => {
                 )}
               </div>
 
-              {/* Song recommendations */}
-              <div className="space-y-4">
-                <h2 className="font-display font-semibold text-xl">
-                  Your Soundtrack
-                </h2>
-                
-                {songs.map((song, index) => (
-                  <SongCard
-                    key={song.id}
-                    song={song}
-                    index={index}
-                    isPlaying={playingId === song.id}
-                    onPlay={() => handlePlay(song.id)}
-                    onPause={handlePause}
-                  />
-                ))}
-              </div>
+              {/* Generated Music (Generate Mode) */}
+              {vibeMode === "photo" && musicMode === "generate" && generatedTrack && (
+                <GeneratedMusicCard
+                  audioUrl={generatedTrack.audioUrl}
+                  prompt={generatedTrack.prompt}
+                  metadata={generatedTrack.metadata}
+                  onRegenerate={() => lastAnalysis && handleGenerateMusic(lastAnalysis)}
+                />
+              )}
+
+              {/* Song recommendations (Discover Mode) */}
+              {musicMode === "discover" && songs.length > 0 && (
+                <div className="space-y-4">
+                  <h2 className="font-display font-semibold text-xl">
+                    Your Soundtrack
+                  </h2>
+                  
+                  {songs.map((song, index) => (
+                    <SongCard
+                      key={song.id}
+                      song={song}
+                      index={index}
+                      isPlaying={playingId === song.id}
+                      onPlay={() => handlePlay(song.id)}
+                      onPause={handlePause}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Share and regenerate */}
               {songs.length > 0 && (
