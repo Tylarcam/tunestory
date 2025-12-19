@@ -14,6 +14,7 @@ import { MusicSourceSelector } from "@/components/MusicSourceSelector";
 import { Music2, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
 
 type AppState = "upload" | "source-select" | "analyzing" | "gathering" | "results";
 type MusicSourceType = "random" | "playlist";
@@ -46,6 +47,9 @@ const Index = () => {
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<string | "liked">("liked");
+  
+  // Spotify Web Playback SDK
+  const spotifyPlayer = useSpotifyPlayer(spotifyToken);
   
   // Track which source was used for regeneration
   const lastSourceRef = useRef<{ type: MusicSourceType; token?: string; playlist?: string | "liked" }>({ type: "random" });
@@ -662,9 +666,17 @@ const Index = () => {
               {/* Song recommendations (Discover Mode) */}
               {musicMode === "discover" && songs.length > 0 && (
                 <div className="space-y-4">
-                  <h2 className="font-display font-semibold text-xl">
-                    Your Soundtrack
-                  </h2>
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-display font-semibold text-xl">
+                      Your Soundtrack
+                    </h2>
+                    {spotifyPlayer.isReady && (
+                      <span className="text-xs text-green-400 flex items-center gap-1">
+                        <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        Full Playback Active
+                      </span>
+                    )}
+                  </div>
                   
                   {songs.map((song, index) => (
                     <SongCard
@@ -674,6 +686,16 @@ const Index = () => {
                       isPlaying={playingId === song.id}
                       onPlay={() => handlePlay(song.id)}
                       onPause={handlePause}
+                      spotifyPlayer={spotifyPlayer.isReady ? {
+                        isReady: spotifyPlayer.isReady,
+                        currentTrack: spotifyPlayer.currentTrack,
+                        progress: spotifyPlayer.progress,
+                        duration: spotifyPlayer.duration,
+                        play: spotifyPlayer.play,
+                        pause: spotifyPlayer.pause,
+                        isPlaying: spotifyPlayer.isPlaying,
+                      } : undefined}
+                      useSpotifySDK={!!spotifyToken && spotifyPlayer.isReady}
                     />
                   ))}
                 </div>
