@@ -107,6 +107,9 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
       "user-library-read",
       "playlist-read-private",
       "playlist-read-collaborative",
+      "streaming",
+      "user-read-playback-state",
+      "user-modify-playback-state",
     ].join(" ");
 
     const authUrl = `https://accounts.spotify.com/authorize?${new URLSearchParams({

@@ -21,6 +21,45 @@ interface PlaylistTrack {
   track: SpotifyTrack | null;
 }
 
+// iTunes API fallback for preview URLs
+async function getItunesPreview(trackName: string, artistName: string): Promise<string | null> {
+  try {
+    const query = encodeURIComponent(`${trackName} ${artistName}`);
+    const response = await fetch(
+      `https://itunes.apple.com/search?term=${query}&media=music&limit=1`
+    );
+    
+    if (!response.ok) {
+      console.log(`iTunes search failed for "${trackName}"`);
+      return null;
+    }
+    
+    const data = await response.json();
+    const previewUrl = data.results?.[0]?.previewUrl || null;
+    
+    if (previewUrl) {
+      console.log(`Found iTunes preview for "${trackName}"`);
+    }
+    
+    return previewUrl;
+  } catch (error) {
+    console.error(`iTunes lookup error for "${trackName}":`, error);
+    return null;
+  }
+}
+
+// Get preview URL with iTunes fallback
+async function getPreviewUrl(track: SpotifyTrack): Promise<string | null> {
+  // First try Spotify's preview URL
+  if (track.preview_url) {
+    return track.preview_url;
+  }
+  
+  // Fallback to iTunes
+  const artistName = track.artists[0]?.name || "";
+  return await getItunesPreview(track.name, artistName);
+}
+
 async function getSpotifyToken(): Promise<string> {
   const clientId = Deno.env.get("SPOTIFY_CLIENT_ID");
   const clientSecret = Deno.env.get("SPOTIFY_CLIENT_SECRET");
@@ -237,16 +276,19 @@ serve(async (req) => {
 
       console.log(`Selected ${topTracks.length} tracks from user library`);
 
-      const recommendations = topTracks.map((track) => ({
-        id: track.id,
-        name: track.name,
-        artist: track.artists.map((a) => a.name).join(", "),
-        album: track.album.name,
-        albumArt: track.album.images[0]?.url || "",
-        previewUrl: track.preview_url,
-        spotifyUrl: track.external_urls.spotify,
-        genre: genres?.[0] || "From Your Library",
-      }));
+      // Get preview URLs with iTunes fallback for tracks missing Spotify previews
+      const recommendations = await Promise.all(
+        topTracks.map(async (track) => ({
+          id: track.id,
+          name: track.name,
+          artist: track.artists.map((a) => a.name).join(", "),
+          album: track.album.name,
+          albumArt: track.album.images[0]?.url || "",
+          previewUrl: await getPreviewUrl(track),
+          spotifyUrl: track.external_urls.spotify,
+          genre: genres?.[0] || "From Your Library",
+        }))
+      );
 
       return new Response(
         JSON.stringify({ recommendations }),
@@ -352,17 +394,19 @@ serve(async (req) => {
 
     console.log(`Found ${topTracks.length} tracks`);
 
-    // Format the response
-    const recommendations = topTracks.map((track) => ({
-      id: track.id,
-      name: track.name,
-      artist: track.artists.map((a) => a.name).join(", "),
-      album: track.album.name,
-      albumArt: track.album.images[0]?.url || "",
-      previewUrl: track.preview_url,
-      spotifyUrl: track.external_urls.spotify,
-      genre: genres?.[0] || "Mixed",
-    }));
+    // Format the response with iTunes fallback for missing previews
+    const recommendations = await Promise.all(
+      topTracks.map(async (track) => ({
+        id: track.id,
+        name: track.name,
+        artist: track.artists.map((a) => a.name).join(", "),
+        album: track.album.name,
+        albumArt: track.album.images[0]?.url || "",
+        previewUrl: await getPreviewUrl(track),
+        spotifyUrl: track.external_urls.spotify,
+        genre: genres?.[0] || "Mixed",
+      }))
+    );
 
     return new Response(
       JSON.stringify({ recommendations }),
