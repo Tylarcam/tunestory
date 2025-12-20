@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { LoadingState } from "@/components/LoadingState";
 import { MoodDisplay, type MoodData } from "@/components/MoodDisplay";
@@ -11,7 +11,7 @@ import { GeneratedMusicCard } from "@/components/GeneratedMusicCard";
 import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { PlaylistSelector } from "@/components/PlaylistSelector";
 import { MusicSourceSelector } from "@/components/MusicSourceSelector";
-import { Music2, Sparkles } from "lucide-react";
+import { Music2, Sparkles, Info } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
@@ -42,7 +42,21 @@ const Index = () => {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [generatedTrack, setGeneratedTrack] = useState<GeneratedTrack | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [lastAnalysis, setLastAnalysis] = useState<any>(null); // Store full analysis for regeneration
+  const [lastAnalysis, setLastAnalysis] = useState<{
+    mood: string;
+    energy: number | string;
+    genres: string[];
+    tempo_bpm?: number;
+    description?: string;
+    setting?: string;
+    time_of_day?: string;
+    visualElements?: {
+      colors?: string[];
+      instruments?: string[];
+      setting?: string;
+      timeOfDay?: string;
+    };
+  } | null>(null); // Store full analysis for regeneration
   
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
@@ -140,6 +154,129 @@ const Index = () => {
     }
   }, [selectedImage]);
 
+  // Generate music using Supabase function (Hugging Face API) for real music
+  const handleGenerateMusic = useCallback(async (analysis: {
+    mood: string;
+    energy: number | string;
+    genres: string[];
+    tempo_bpm?: number;
+    description?: string;
+    setting?: string;
+    time_of_day?: string;
+    visualElements?: {
+      colors?: string[];
+      instruments?: string[];
+      setting?: string;
+      timeOfDay?: string;
+    };
+  }) => {
+    setIsGenerating(true);
+    setState("gathering");
+    
+    try {
+      // Convert energy string to number if needed
+      const energyNum = typeof analysis.energy === 'string'
+        ? analysis.energy === 'High' ? 8 : analysis.energy === 'Medium' ? 5 : 3
+        : analysis.energy;
+
+      // Call Supabase function directly with analysis data
+      // This uses Hugging Face API for real music generation
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({
+            mood: analysis.mood,
+            energy: energyNum,
+            genres: analysis.genres,
+            tempo_bpm: analysis.tempo_bpm || 120,
+            description: analysis.description || '',
+            setting: analysis.visualElements?.setting || analysis.setting || '',
+            time_of_day: analysis.visualElements?.timeOfDay || analysis.time_of_day || '',
+            visualElements: analysis.visualElements || {}
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          const text = await response.text();
+          errorData = { error: text || `HTTP ${response.status} error` };
+        }
+        
+        console.error('Generation API error:', response.status, errorData);
+        
+        // Handle retryable errors (503 - model loading)
+        if (response.status === 503 || errorData.retryable) {
+          toast({
+            title: "Model Loading",
+            description: errorData.error || errorData.details || "Model is loading. Please try again in 20-30 seconds.",
+            variant: "default",
+          });
+          setState("source-select");
+          return;
+        }
+
+        // Handle specific error cases
+        if (response.status === 401) {
+          throw new Error(errorData.error || errorData.details || "Invalid API key. Please check Hugging Face API key configuration in Supabase.");
+        }
+
+        if (response.status === 404) {
+          throw new Error(errorData.error || errorData.details || "Model not found. MusicGen may not be available via Inference API.");
+        }
+        
+        throw new Error(errorData.error || errorData.details || `Generation failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error('Generation failed:', data);
+        throw new Error(data.error || data.details || "Failed to generate music");
+      }
+
+      // Supabase function returns audioUrl directly (data URL)
+      const trackData: GeneratedTrack = {
+        success: true,
+        audioUrl: data.audioUrl,
+        prompt: data.prompt,
+        metadata: {
+          model: data.metadata?.model || 'AudioCraft MusicGen Large',
+          duration: data.metadata?.duration || 30,
+          status: 'generated',
+          framework: data.metadata?.framework || 'AudioCraft'
+        }
+      };
+
+      setGeneratedTrack(trackData);
+      setSongs([]); // Clear songs when generating
+      setState("results");
+      toast({
+        title: "Music Generated!",
+        description: "Your AI-generated track is ready to play.",
+      });
+
+    } catch (error) {
+      console.error('Generation error:', error);
+      toast({
+        title: "Generation Failed",
+        description: error instanceof Error ? error.message : "Failed to generate music. Please try again.",
+        variant: "destructive",
+      });
+      setState("source-select");
+    } finally {
+      setIsGenerating(false);
+    }
+  }, []);
+
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
     if (!selectedImage) return;
@@ -229,101 +366,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImage, musicMode]);
-
-  // Generate music using AudioCraft
-  const handleGenerateMusic = useCallback(async (analysis: any) => {
-    setIsGenerating(true);
-    setState("gathering");
-    
-    try {
-      // Convert energy string to number if needed
-      const energyNum = typeof analysis.energy === 'string'
-        ? analysis.energy === 'High' ? 8 : analysis.energy === 'Medium' ? 5 : 3
-        : analysis.energy;
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({
-            mood: analysis.mood,
-            energy: energyNum,
-            genres: analysis.genres,
-            tempo_bpm: analysis.tempo_bpm,
-            description: analysis.description,
-            setting: analysis.visualElements?.setting || analysis.setting,
-            time_of_day: analysis.visualElements?.timeOfDay || analysis.time_of_day,
-            visualElements: analysis.visualElements || {}
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = await response.json();
-        } catch {
-          const text = await response.text();
-          errorData = { error: text || `HTTP ${response.status} error` };
-        }
-        
-        console.error('Generation API error:', response.status, errorData);
-        
-        // Handle retryable errors (503 - model loading)
-        if (response.status === 503 || errorData.retryable) {
-          toast({
-            title: "Model Loading",
-            description: errorData.error || errorData.details || "Model is loading. Please try again in 20-30 seconds.",
-            variant: "default",
-          });
-          setState("upload");
-          return;
-        }
-
-        // Handle specific error cases
-        if (response.status === 401) {
-          throw new Error(errorData.error || errorData.details || "Invalid API key. Please check Hugging Face API key configuration.");
-        }
-
-        if (response.status === 404) {
-          throw new Error(errorData.error || errorData.details || "Model not found. MusicGen may not be available via Inference API.");
-        }
-        
-        throw new Error(errorData.error || errorData.details || `Generation failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (!data.success) {
-        console.error('Generation failed:', data);
-        throw new Error(data.error || data.details || "Failed to generate music");
-      }
-
-      setGeneratedTrack(data);
-      setSongs([]); // Clear songs when generating
-      setState("results");
-      toast({
-        title: "Music Generated!",
-        description: "Your AI-generated track is ready to play.",
-      });
-
-    } catch (error) {
-      console.error('Generation error:', error);
-      toast({
-        title: "Generation Failed",
-        description: error instanceof Error ? error.message : "Failed to generate music. Please try again.",
-        variant: "destructive",
-      });
-      setState("upload");
-    } finally {
-      setIsGenerating(false);
-    }
-  }, []);
+  }, [selectedImage, musicMode, handleGenerateMusic]);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -580,7 +623,7 @@ const Index = () => {
                     {isGenerating ? "Generating Music..." : "Generate AI Music"}
                   </Button>
                   <p className="text-sm text-muted-foreground">
-                    Create original music that matches your photo's vibe using AudioCraft (20-40 seconds)
+                    Create original music using AudioCraft MusicGen (30-60 seconds, first request may take longer)
                   </p>
                 </div>
               )}
@@ -622,7 +665,7 @@ const Index = () => {
                 state === "analyzing" 
                   ? "Analyzing your vibe..." 
                   : musicMode === "generate"
-                    ? "Generating your AI music... (this may take 20-40 seconds)"
+                    ? "Generating your AI music... (30-60 seconds, first request may take longer)"
                     : "Finding your perfect tracks..."
               }
               imageUrl={vibeMode === "photo" ? imagePreviewUrl || undefined : undefined}
