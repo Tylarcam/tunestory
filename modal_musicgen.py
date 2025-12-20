@@ -19,14 +19,17 @@ from typing import Optional
 # that run on Modal's containers, not at module level
 
 # Define Modal image with AudioCraft dependencies
+# Based on Modal's official MusicGen example: https://modal.com/docs/examples/musicgen
 image = (
-    modal.Image.debian_slim()
-    .apt_install("ffmpeg")
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("git", "ffmpeg")
     .pip_install(
-        "torch>=2.0.0",
-        "torchaudio>=2.0.0",
-        "audiocraft",
-        "numpy",
+        "huggingface_hub[hf_transfer]==0.27.1",  # speed up model downloads
+        "torch==2.1.0",  # version pinned by audiocraft
+        "numpy<2",  # defensively cap the numpy version
+        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",  # install from GitHub with specific version
+    )
+    .pip_install(
         "fastapi",
         "pydantic",
     )
