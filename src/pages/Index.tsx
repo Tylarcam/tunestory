@@ -174,13 +174,13 @@ const Index = () => {
     setState("gathering");
     
     try {
-      // Convert energy string to number if needed
-      const energyNum = typeof analysis.energy === 'string'
-        ? analysis.energy === 'High' ? 8 : analysis.energy === 'Medium' ? 5 : 3
-        : analysis.energy;
+      // Ensure energy is a string for the edge function
+      const energyStr = typeof analysis.energy === 'number'
+        ? analysis.energy >= 7 ? 'High' : analysis.energy >= 4 ? 'Medium' : 'Low'
+        : analysis.energy || 'Medium';
 
       // Call Supabase function directly with analysis data
-      // This uses Hugging Face API for real music generation
+      // This uses Modal API for AudioCraft MusicGen generation
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
         {
@@ -191,7 +191,7 @@ const Index = () => {
           },
           body: JSON.stringify({
             mood: analysis.mood,
-            energy: energyNum,
+            energy: energyStr,
             genres: analysis.genres,
             tempo_bpm: analysis.tempo_bpm || 120,
             description: analysis.description || '',
