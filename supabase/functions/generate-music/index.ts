@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildMusicGenPrompt } from "../_shared/audiocraft-prompt.ts";
+import { z } from "https://deno.land/x/zod@v3.21.4/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,12 +10,53 @@ const corsHeaders = {
 // AudioCraft MusicGen via Hugging Face (using new router endpoint)
 const HF_API_URL = 'https://router.huggingface.co/hf-inference/models/facebook/musicgen-large';
 
+// Input validation schema
+const requestSchema = z.object({
+  mood: z.string().min(1).max(100),
+  energy: z.string().min(1).max(50),
+  genres: z.array(z.string().max(100)).min(1).max(10),
+  tempo_bpm: z.number().min(40).max(300).optional(),
+  description: z.string().max(500).optional(),
+  setting: z.string().max(200).optional(),
+  time_of_day: z.string().max(50).optional(),
+  visualElements: z.object({
+    colors: z.array(z.string().max(50)).max(10).optional(),
+    setting: z.string().max(200).optional(),
+    timeOfDay: z.string().max(50).optional(),
+    atmosphere: z.string().max(200).optional(),
+  }).optional(),
+});
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Parse and validate input
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid JSON body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const parseResult = requestSchema.safeParse(body);
+    if (!parseResult.success) {
+      console.error("Validation error:", parseResult.error.issues);
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: "Invalid request parameters",
+          details: parseResult.error.issues[0]?.message 
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { 
       mood, 
       energy, 
@@ -24,20 +66,7 @@ serve(async (req) => {
       setting,
       time_of_day,
       visualElements 
-    } = await req.json();
-  
-    if (!mood || !energy || !genres) {
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: "Missing required parameters: mood, energy, genres" 
-        }),
-        { 
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" } 
-        }
-      );
-    }
+    } = parseResult.data;
   
     // Build AudioCraft-optimized prompt
     const musicPrompt = buildMusicGenPrompt({
@@ -208,8 +237,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        stack: error instanceof Error ? error.stack : undefined,
+        error: 'Music generation failed',
         retryable: false
       }),
       { 
@@ -219,4 +247,3 @@ serve(async (req) => {
     );
   }
 });
-

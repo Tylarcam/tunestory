@@ -1,9 +1,21 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.21.4/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Input validation schema
+const requestSchema = z.object({
+  imageBase64: z.string()
+    .min(1, "Image data is required")
+    .max(10 * 1024 * 1024, "Image too large (max 10MB)")
+    .refine(
+      (val) => val.startsWith("data:image/"),
+      "Invalid image format - must be a base64 data URL"
+    ),
+});
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -11,20 +23,33 @@ serve(async (req) => {
   }
 
   try {
-    const { imageBase64 } = await req.json();
-    
-    if (!imageBase64) {
+    // Parse and validate input
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
       return new Response(
-        JSON.stringify({ error: "No image provided" }),
+        JSON.stringify({ error: "Invalid JSON body" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const parseResult = requestSchema.safeParse(body);
+    if (!parseResult.success) {
+      console.error("Validation error:", parseResult.error.issues);
+      return new Response(
+        JSON.stringify({ error: "Invalid request", details: parseResult.error.issues[0]?.message }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { imageBase64 } = parseResult.data;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       console.error("LOVABLE_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "API key not configured" }),
+        JSON.stringify({ error: "API configuration error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -126,7 +151,7 @@ Generate 4 searchTerms minimum. Each should be a complete Spotify-searchable que
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     
-    console.log("Raw AI response:", content);
+    console.log("Raw AI response received");
 
     // Parse the JSON from the response
     let analysis;
@@ -139,7 +164,7 @@ Generate 4 searchTerms minimum. Each should be a complete Spotify-searchable que
         throw new Error("No JSON found in response");
       }
     } catch (parseError) {
-      console.error("Failed to parse AI response:", parseError);
+      console.error("Failed to parse AI response");
       // Return a fallback analysis
       analysis = {
         mood: "Atmospheric",
@@ -156,7 +181,7 @@ Generate 4 searchTerms minimum. Each should be a complete Spotify-searchable que
       };
     }
 
-    console.log("Parsed analysis:", analysis);
+    console.log("Analysis complete");
 
     return new Response(
       JSON.stringify(analysis),
@@ -164,9 +189,8 @@ Generate 4 searchTerms minimum. Each should be a complete Spotify-searchable que
     );
   } catch (error) {
     console.error("Error in analyze-image:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: "Request processing failed" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
