@@ -1,0 +1,18 @@
+# Requirements for local development
+# These packages are installed locally for Modal deployment
+
+# Modal CLI - required for deploying functions
+modal>=0.62.0
+
+# Note: The following packages are installed in Modal's container during deployment,
+# not locally. If you want to test AudioCraft locally (requires GPU), uncomment:
+# torch>=2.0.0
+# torchaudio>=2.0.0
+# audiocraft>=1.0.0
+#
+# Local server dependencies (if running musicgen_server.py locally):
+# fastapi==0.104.1
+# uvicorn[standard]==0.24.0
+# pydantic==2.5.0
+# python-multipart==0.0.6
+

@@ -7,8 +7,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// AudioCraft MusicGen via Hugging Face (using new router endpoint)
-const HF_API_URL = 'https://router.huggingface.co/hf-inference/models/facebook/musicgen-large';
+// AudioCraft MusicGen via Modal (cloud-hosted GPU inference)
+// Set MODAL_API_URL in Supabase Edge Function secrets
+// Format: https://your-username--tunestory-musicgen-generate-music.modal.run
 
 // Input validation schema
 const requestSchema = z.object({
@@ -82,14 +83,15 @@ serve(async (req) => {
   
     console.log('🎵 AudioCraft prompt:', musicPrompt);
   
-    const HUGGINGFACE_API_KEY = Deno.env.get('HUGGINGFACE_API_KEY');
+    // Get Modal API URL from environment
+    const MODAL_API_URL = Deno.env.get('MODAL_API_URL');
   
-    if (!HUGGINGFACE_API_KEY) {
-      console.error('HUGGINGFACE_API_KEY not configured');
+    if (!MODAL_API_URL) {
+      console.error('MODAL_API_URL not configured');
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'HUGGINGFACE_API_KEY not configured. Please set it in Supabase Edge Function secrets.' 
+          error: 'MODAL_API_URL not configured. Please set it in Supabase Edge Function secrets.' 
         }),
         { 
           status: 500,
@@ -98,61 +100,47 @@ serve(async (req) => {
       );
     }
   
-    // Call AudioCraft MusicGen via Hugging Face
-    console.log('🎵 Calling AudioCraft MusicGen with prompt:', musicPrompt);
-  
-    // Try simplified request format first (MusicGen via Inference API might need simpler format)
-    const requestBody = {
-      inputs: musicPrompt,
-      parameters: {
-        max_new_tokens: 256,
-        do_sample: true,
-        temperature: 1.0,
-        guidance_scale: 3.0
-      },
-      options: {
-        wait_for_model: true,
-        use_cache: false
-      }
+    // Call AudioCraft MusicGen via Modal
+    console.log('🎵 Calling Modal AudioCraft endpoint...');
+    console.log('   Prompt:', musicPrompt);
+    console.log('   Modal URL:', MODAL_API_URL);
+
+    const modalRequestBody = {
+      prompt: musicPrompt,
+      duration: 30,
+      temperature: 1.0
     };
 
-    console.log('Request URL:', HF_API_URL);
-    console.log('Request body:', JSON.stringify(requestBody, null, 2));
+    console.log('Request body:', JSON.stringify(modalRequestBody, null, 2));
 
-    const response = await fetch(HF_API_URL, {
+    const modalResponse = await fetch(MODAL_API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(modalRequestBody)
     });
   
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ AudioCraft API error:', response.status, errorText);
-      console.error('Request body was:', JSON.stringify({
-        inputs: musicPrompt,
-        parameters: {
-          max_new_tokens: 256,
-          do_sample: true,
-          temperature: 1.0,
-          top_k: 250,
-          top_p: 0.0,
-          guidance_scale: 3.0
-        },
-        options: {
-          wait_for_model: true,
-          use_cache: false
-        }
-      }));
+    if (!modalResponse.ok) {
+      let errorText: string;
+      let errorData: any;
+      
+      try {
+        errorText = await modalResponse.text();
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorText = `HTTP ${modalResponse.status} error`;
+        errorData = { error: errorText };
+      }
+      
+      console.error('❌ Modal API error:', modalResponse.status, errorText);
     
       // Handle common errors
-      if (response.status === 503) {
+      if (modalResponse.status === 503 || modalResponse.status === 429) {
         return new Response(
           JSON.stringify({ 
             success: false,
-            error: 'Model is loading. Please try again in 20-30 seconds.',
+            error: errorData.error || 'Service temporarily unavailable. Please try again in a moment.',
             retryable: true,
             details: errorText
           }),
@@ -163,15 +151,30 @@ serve(async (req) => {
         );
       }
 
-      if (response.status === 401) {
+      if (modalResponse.status === 400) {
         return new Response(
           JSON.stringify({ 
             success: false,
-            error: 'Invalid Hugging Face API key. Please check your HUGGINGFACE_API_KEY secret.',
+            error: errorData.error || 'Invalid request. Please check your input parameters.',
             details: errorText
           }),
           { 
-            status: 401,
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      if (modalResponse.status === 500) {
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: errorData.error || 'Modal service error. Please try again.',
+            retryable: true,
+            details: errorText
+          }),
+          { 
+            status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" }
           }
         );
@@ -180,46 +183,82 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: `AudioCraft API error: ${response.status}`,
+          error: errorData.error || `Modal API error: ${modalResponse.status}`,
           details: errorText,
-          status: response.status
+          status: modalResponse.status
         }),
         { 
-          status: response.status,
+          status: modalResponse.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         }
       );
     }
   
-    // Response is audio binary (WAV format)
-    const audioBlob = await response.blob();
-    const audioBuffer = await audioBlob.arrayBuffer();
+    // Parse Modal response (expects JSON with audio_base64)
+    let modalData: any;
+    try {
+      modalData = await modalResponse.json();
+    } catch (error) {
+      console.error('❌ Failed to parse Modal response:', error);
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: 'Invalid response from Modal service'
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    if (!modalData.success) {
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: modalData.error || 'Generation failed',
+          details: modalData.details
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    if (!modalData.audio_base64) {
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: 'No audio data received from Modal service'
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
   
-    console.log('✅ Generated audio:', audioBuffer.byteLength, 'bytes');
+    // Convert base64 to data URL
+    const audioDataUrl = `data:audio/wav;base64,${modalData.audio_base64}`;
   
-    // Convert to base64 for data URL
-    const base64Audio = btoa(
-      String.fromCharCode(...new Uint8Array(audioBuffer))
-    );
-  
-    const audioDataUrl = `data:audio/wav;base64,${base64Audio}`;
-  
-    // Optional: Upload to Supabase Storage for persistence
-    // const storageUrl = await uploadToStorage(audioBuffer, musicPrompt);
+    console.log('✅ Generated audio:', modalData.size_bytes, 'bytes');
+    console.log('   Generation time:', modalData.generation_time_seconds, 'seconds');
   
     return new Response(
       JSON.stringify({
         success: true,
-        audioUrl: audioDataUrl, // or storageUrl if using storage
+        audioUrl: audioDataUrl,
         prompt: musicPrompt,
         metadata: {
-          model: 'AudioCraft MusicGen Large (Meta Research)',
-          version: 'facebook/musicgen-large',
-          duration: 30, // approximate
+          model: 'AudioCraft MusicGen Small (Meta Research)',
+          version: 'facebook/musicgen-small',
+          duration: modalData.duration || 30,
           status: 'generated',
           format: 'wav',
-          size: audioBuffer.byteLength,
-          framework: 'AudioCraft'
+          size: modalData.size_bytes,
+          framework: 'AudioCraft (Modal)',
+          generation_time_seconds: modalData.generation_time_seconds
         }
       }),
       { 
