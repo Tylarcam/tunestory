@@ -38,10 +38,11 @@ image = (
         "huggingface_hub[hf_transfer]==0.27.1",
         "torch==2.1.0",
         "torchaudio==2.1.0",  # Required - must match torch version
+        "transformers==4.35.2",  # Pin to last version compatible with torch 2.1.0 (4.36+ requires torch 2.2+)
         "numpy<2",
     )
     .pip_install(
-        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",  # Install audiocraft separately - it will handle transformers dependency
+        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",  # Install audiocraft - it will use the pinned transformers version
     )
     .pip_install(
         "fastapi",
