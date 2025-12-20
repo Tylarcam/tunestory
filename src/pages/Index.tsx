@@ -341,7 +341,8 @@ const Index = () => {
               energy: analysis.energy,
               // Include Spotify token and playlist for filtering
               spotifyAccessToken: accessToken,
-              playlistId: playlistId === "liked" ? null : playlistId,
+              // Don't include playlistId when using liked songs (schema expects string, not null)
+              ...(playlistId !== "liked" && { playlistId }),
               useUserLibrary: true,
             }),
           }
