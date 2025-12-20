@@ -11,6 +11,7 @@ Then call the endpoint:
 """
 
 import modal
+from modal import enter
 import io
 import base64
 from typing import Optional
@@ -65,7 +66,8 @@ class MusicGenModel:
     This improves performance by avoiding reloading on every request.
     """
     
-    def __enter__(self):
+    @enter()
+    def load_model(self):
         """Load model when container starts"""
         from audiocraft.models import MusicGen
         
@@ -76,7 +78,6 @@ class MusicGenModel:
         # 'large' = best quality, ~20-30s
         self.model = MusicGen.get_pretrained('facebook/musicgen-small')
         print("✅ Model loaded successfully!")
-        return self
     
     @modal.method()
     def generate(
@@ -96,7 +97,6 @@ class MusicGenModel:
         Returns:
             Dictionary with success status, base64 audio, and metadata
         """
-        from audiocraft.models import MusicGen
         import torch
         import torchaudio
         import time
@@ -144,6 +144,10 @@ class MusicGenModel:
             "generation_time_seconds": round(generation_time, 2),
             "format": "wav"
         }
+
+
+# Global remote-capable instance for FastAPI to use
+musicgen_model = MusicGenModel()
 
 
 @app.function()
@@ -197,9 +201,8 @@ def fastapi_app():
             if not (0.1 <= request.temperature <= 2.0):
                 raise HTTPException(status_code=400, detail="Temperature must be between 0.1 and 2.0")
             
-            # Create model instance and generate
-            model = MusicGenModel()
-            result = model.generate.remote(
+            # Use the shared remote instance
+            result = musicgen_model.generate.remote(
                 prompt=request.prompt,
                 duration=request.duration,
                 temperature=request.temperature
