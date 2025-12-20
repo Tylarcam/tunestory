@@ -1,9 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.21.4/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Input validation schema
+const requestSchema = z.object({
+  accessToken: z.string().min(1).max(2000),
+  playlistId: z.string().max(100).regex(/^[a-zA-Z0-9]*$/, "Invalid playlist ID format").optional(),
+});
 
 interface Track {
   id: string;
@@ -22,7 +29,7 @@ interface AudioFeatures {
 
 async function getLikedTracks(accessToken: string): Promise<Track[]> {
   const tracks: Track[] = [];
-  let url = "https://api.spotify.com/v1/me/tracks?limit=50";
+  const url = "https://api.spotify.com/v1/me/tracks?limit=50";
 
   const response = await fetch(url, {
     headers: {
@@ -40,7 +47,7 @@ async function getLikedTracks(accessToken: string): Promise<Track[]> {
       tracks.push({
         id: item.track.id,
         name: item.track.name,
-        artist: item.track.artists?.map((a: any) => a.name).join(", ") || "Unknown",
+        artist: item.track.artists?.map((a: unknown) => (a as { name: string }).name).join(", ") || "Unknown",
       });
     }
   }
@@ -50,7 +57,7 @@ async function getLikedTracks(accessToken: string): Promise<Track[]> {
 
 async function getPlaylistTracks(accessToken: string, playlistId: string): Promise<Track[]> {
   const tracks: Track[] = [];
-  let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`;
+  const url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks?limit=50`;
 
   const response = await fetch(url, {
     headers: {
@@ -68,7 +75,7 @@ async function getPlaylistTracks(accessToken: string, playlistId: string): Promi
       tracks.push({
         id: item.track.id,
         name: item.track.name,
-        artist: item.track.artists?.map((a: any) => a.name).join(", ") || "Unknown",
+        artist: item.track.artists?.map((a: unknown) => (a as { name: string }).name).join(", ") || "Unknown",
       });
     }
   }
@@ -177,16 +184,29 @@ serve(async (req) => {
   }
 
   try {
-    const { accessToken, playlistId } = await req.json();
-
-    if (!accessToken) {
+    // Parse and validate input
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
       return new Response(
-        JSON.stringify({ error: "No access token provided" }),
+        JSON.stringify({ error: "Invalid JSON body" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Analyzing music - Playlist ID: ${playlistId || "liked songs"}`);
+    const parseResult = requestSchema.safeParse(body);
+    if (!parseResult.success) {
+      console.error("Validation error:", parseResult.error.issues);
+      return new Response(
+        JSON.stringify({ error: "Invalid request parameters" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { accessToken, playlistId } = parseResult.data;
+
+    console.log(`Analyzing music - Source: ${playlistId ? "playlist" : "liked songs"}`);
 
     // Get tracks
     let tracks: Track[];
@@ -195,7 +215,6 @@ serve(async (req) => {
     } else {
       tracks = await getLikedTracks(accessToken);
     }
-
     console.log(`Found ${tracks.length} tracks to analyze`);
 
     if (tracks.length === 0) {
@@ -229,9 +248,8 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("Error in analyze-music:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: "Music analysis failed" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

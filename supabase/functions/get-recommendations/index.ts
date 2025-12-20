@@ -1,9 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.21.4/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Input validation schema
+const requestSchema = z.object({
+  searchTerms: z.array(z.string().max(200)).max(20).optional(),
+  genres: z.array(z.string().max(100)).max(10).optional(),
+  mood: z.string().max(100).optional(),
+  energy: z.union([z.string().max(50), z.number()]).optional(),
+  visualElements: z.object({
+    colors: z.array(z.string().max(50)).max(10).optional(),
+    setting: z.string().max(200).optional(),
+    timeOfDay: z.string().max(50).optional(),
+    atmosphere: z.string().max(200).optional(),
+  }).optional(),
+  spotifyAccessToken: z.string().max(2000).optional(),
+  playlistId: z.string().max(100).regex(/^[a-zA-Z0-9]+$/, "Invalid playlist ID format").optional(),
+  useUserLibrary: z.boolean().optional(),
+});
 
 interface SpotifyTrack {
   id: string;
@@ -43,7 +61,7 @@ async function getItunesPreview(trackName: string, artistName: string): Promise<
     
     return previewUrl;
   } catch (error) {
-    console.error(`iTunes lookup error for "${trackName}":`, error);
+    console.error(`iTunes lookup error for "${trackName}"`);
     return null;
   }
 }
@@ -220,21 +238,40 @@ serve(async (req) => {
   }
 
   try {
+    // Parse and validate input
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "Invalid JSON body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const parseResult = requestSchema.safeParse(body);
+    if (!parseResult.success) {
+      console.error("Validation error:", parseResult.error.issues);
+      return new Response(
+        JSON.stringify({ error: "Invalid request", details: parseResult.error.issues[0]?.message }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { 
       searchTerms, 
       genres, 
       mood, 
       energy, 
       visualElements,
-      // New parameters for user library mode
       spotifyAccessToken,
       playlistId,
       useUserLibrary
-    } = await req.json();
+    } = parseResult.data;
 
     console.log("Getting recommendations for:", { 
-      searchTerms, 
-      genres, 
+      searchTerms: searchTerms?.length || 0, 
+      genres: genres?.length || 0, 
       mood, 
       energy, 
       useUserLibrary, 
@@ -319,9 +356,9 @@ serve(async (req) => {
     
     // Strategy 3: Energy + genre combinations
     if (genres && Array.isArray(genres) && genres.length > 0 && energy) {
+      const energyStr = typeof energy === 'number' ? String(energy) : energy;
       genres.slice(0, 2).forEach((genre: string) => {
-        const energyLower = energy.toLowerCase();
-        queries.push(`${energyLower} ${genre.toLowerCase()}`);
+        queries.push(`${energyStr.toLowerCase()} ${genre.toLowerCase()}`);
       });
     }
     
@@ -337,7 +374,8 @@ serve(async (req) => {
     
     // Strategy 5: Mood + energy combination (fallback)
     if (mood && energy) {
-      queries.push(`${mood.toLowerCase()} ${energy.toLowerCase()} music`);
+      const energyStr = typeof energy === 'number' ? String(energy) : energy;
+      queries.push(`${mood.toLowerCase()} ${energyStr.toLowerCase()} music`);
     }
     
     // Strategy 6: Genre-only fallbacks (if we don't have enough queries)
@@ -414,9 +452,8 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("Error in get-recommendations:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: "Request processing failed" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
