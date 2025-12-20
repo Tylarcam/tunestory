@@ -20,15 +20,28 @@ from typing import Optional
 
 # Define Modal image with AudioCraft dependencies
 # Based on Modal's official MusicGen example: https://modal.com/docs/examples/musicgen
+# PyAV (audiocraft dependency) requires pkg-config and FFmpeg dev libraries
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git", "ffmpeg")
+    .apt_install(
+        "git",
+        "ffmpeg",
+        "pkg-config",
+        "libavformat-dev",
+        "libavcodec-dev",
+        "libavdevice-dev",
+        "libavutil-dev",
+        "libswscale-dev",
+        "libswresample-dev",
+    )
     .pip_install(
         "huggingface_hub[hf_transfer]==0.27.1",
         "torch==2.1.0",
         "torchaudio==2.1.0",  # Required - must match torch version
         "numpy<2",
-        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",
+    )
+    .pip_install(
+        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",  # Install audiocraft separately - it will handle transformers dependency
     )
     .pip_install(
         "fastapi",
