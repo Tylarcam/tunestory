@@ -24,10 +24,11 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "ffmpeg")
     .pip_install(
-        "huggingface_hub[hf_transfer]==0.27.1",  # speed up model downloads
-        "torch==2.1.0",  # version pinned by audiocraft
-        "numpy<2",  # defensively cap the numpy version
-        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",  # install from GitHub with specific version
+        "huggingface_hub[hf_transfer]==0.27.1",
+        "torch==2.1.0",
+        "torchaudio==2.1.0",  # Required - must match torch version
+        "numpy<2",
+        "git+https://github.com/facebookresearch/audiocraft.git@v1.3.0",
     )
     .pip_install(
         "fastapi",
