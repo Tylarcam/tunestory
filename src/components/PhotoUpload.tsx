@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
-import { Upload, Image as ImageIcon, X, Check } from "lucide-react";
+import { Upload, Image as ImageIcon, X, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface PhotoUploadProps {
   onImagesSelect: (files: File[]) => void;
@@ -8,9 +9,21 @@ interface PhotoUploadProps {
   selectedImageIndex: number | null;
   onImageSelect: (index: number) => void;
   onClear: () => void;
+  onPreviousPhoto?: () => void;
+  onNextPhoto?: () => void;
+  onContinue?: () => void;
 }
 
-export function PhotoUpload({ onImagesSelect, selectedImages, selectedImageIndex, onImageSelect, onClear }: PhotoUploadProps) {
+export function PhotoUpload({ 
+  onImagesSelect, 
+  selectedImages, 
+  selectedImageIndex, 
+  onImageSelect, 
+  onClear,
+  onPreviousPhoto,
+  onNextPhoto,
+  onContinue
+}: PhotoUploadProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
@@ -24,6 +37,32 @@ export function PhotoUpload({ onImagesSelect, selectedImages, selectedImageIndex
       urls.forEach(url => URL.revokeObjectURL(url));
     };
   }, [selectedImages]);
+
+  // Keyboard navigation for cycling through photos
+  useEffect(() => {
+    if (selectedImages.length <= 1 || selectedImageIndex === null) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle keyboard events if we're in the gallery preview mode
+      if (selectedImages.length > 1) {
+        if (e.key === "ArrowLeft" && onPreviousPhoto && selectedImageIndex > 0) {
+          e.preventDefault();
+          onPreviousPhoto();
+        } else if (e.key === "ArrowRight" && onNextPhoto && selectedImageIndex < selectedImages.length - 1) {
+          e.preventDefault();
+          onNextPhoto();
+        } else if ((e.key === "Enter" || e.key === " ") && onContinue) {
+          e.preventDefault();
+          onContinue();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedImages.length, selectedImageIndex, onPreviousPhoto, onNextPhoto, onContinue]);
 
   const handleFiles = useCallback((files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
@@ -116,22 +155,75 @@ export function PhotoUpload({ onImagesSelect, selectedImages, selectedImageIndex
 
         {/* Selected photo preview */}
         {selectedImageIndex !== null && selectedPreviewUrl && (
-          <div className="relative animate-fade-in-up">
-            <div className="glass-card p-2 glow-primary">
-              <div className="relative aspect-square max-w-md mx-auto overflow-hidden rounded-xl">
-                <img
-                  src={selectedPreviewUrl}
-                  alt="Selected"
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  onClick={handleClear}
-                  className="absolute top-3 right-3 p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                >
-                  <X className="w-5 h-5 text-foreground" />
-                </button>
+          <div className="space-y-4 animate-fade-in-up">
+            <div className="relative">
+              <div className="glass-card p-2 glow-primary">
+                <div className="relative aspect-square max-w-md mx-auto overflow-hidden rounded-xl">
+                  <img
+                    src={selectedPreviewUrl}
+                    alt="Selected"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    onClick={handleClear}
+                    className="absolute top-3 right-3 p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background transition-colors z-10"
+                  >
+                    <X className="w-5 h-5 text-foreground" />
+                  </button>
+                  
+                  {/* Navigation arrows */}
+                  {selectedImages.length > 1 && (
+                    <>
+                      {/* Previous button */}
+                      <button
+                        onClick={onPreviousPhoto}
+                        disabled={selectedImageIndex === 0}
+                        className={cn(
+                          "absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background transition-colors z-10",
+                          selectedImageIndex === 0 && "opacity-50 cursor-not-allowed"
+                        )}
+                        aria-label="Previous photo"
+                      >
+                        <ChevronLeft className="w-5 h-5 text-foreground" />
+                      </button>
+                      
+                      {/* Next button */}
+                      <button
+                        onClick={onNextPhoto}
+                        disabled={selectedImageIndex === selectedImages.length - 1}
+                        className={cn(
+                          "absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background transition-colors z-10",
+                          selectedImageIndex === selectedImages.length - 1 && "opacity-50 cursor-not-allowed"
+                        )}
+                        aria-label="Next photo"
+                      >
+                        <ChevronRight className="w-5 h-5 text-foreground" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
+              
+              {/* Photo counter */}
+              {selectedImages.length > 1 && (
+                <div className="text-center mt-2 text-sm text-muted-foreground">
+                  Photo {selectedImageIndex + 1} of {selectedImages.length}
+                </div>
+              )}
             </div>
+            
+            {/* Continue button */}
+            {selectedImages.length > 1 && onContinue && (
+              <div className="flex justify-center">
+                <Button
+                  onClick={onContinue}
+                  className="w-full sm:w-auto px-8 py-6 text-lg font-semibold glow-primary"
+                  size="lg"
+                >
+                  Continue with this photo
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

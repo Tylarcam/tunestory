@@ -105,11 +105,32 @@ const Index = () => {
     }
   }, []);
 
-  // Called when user selects an image from the gallery
+  // Called when user selects an image from the gallery (just updates selection, doesn't proceed)
   const handleGalleryImageSelect = useCallback((index: number) => {
     setSelectedImageIndex(index);
-    setState("source-select"); // Proceed to source selection after selection
+    // State stays "upload" to allow cycling through photos
   }, []);
+
+  // Navigate to previous photo
+  const handlePreviousPhoto = useCallback(() => {
+    if (selectedImageIndex !== null && selectedImageIndex > 0) {
+      setSelectedImageIndex(selectedImageIndex - 1);
+    }
+  }, [selectedImageIndex]);
+
+  // Navigate to next photo
+  const handleNextPhoto = useCallback(() => {
+    if (selectedImageIndex !== null && selectedImages.length > 0 && selectedImageIndex < selectedImages.length - 1) {
+      setSelectedImageIndex(selectedImageIndex + 1);
+    }
+  }, [selectedImageIndex, selectedImages.length]);
+
+  // Continue with selected photo to music discovery/generation
+  const handleContinueWithSelectedPhoto = useCallback(() => {
+    if (selectedImageIndex !== null && selectedImages.length > 0) {
+      setState("source-select");
+    }
+  }, [selectedImageIndex, selectedImages.length]);
 
   // Analyze image and get random recommendations
   const analyzeImageAndGetRandom = useCallback(async () => {
@@ -573,6 +594,9 @@ const Index = () => {
               selectedImageIndex={selectedImageIndex}
               onImageSelect={handleGalleryImageSelect}
               onClear={handleClear}
+              onPreviousPhoto={handlePreviousPhoto}
+              onNextPhoto={handleNextPhoto}
+              onContinue={handleContinueWithSelectedPhoto}
             />
           )}
 
