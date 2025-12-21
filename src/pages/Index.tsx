@@ -35,7 +35,8 @@ const Index = () => {
   const [state, setState] = useState<AppState>("upload");
   const [vibeMode, setVibeMode] = useState<VibeMode>("photo");
   const [musicMode, setMusicMode] = useState<MusicMode>("discover");
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [moodData, setMoodData] = useState<MoodData | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
@@ -68,17 +69,52 @@ const Index = () => {
   // Track which source was used for regeneration
   const lastSourceRef = useRef<{ type: MusicSourceType; token?: string; playlist?: string | "liked" }>({ type: "random" });
 
-  // Called when image is selected - now goes to source selection
-  const handleImageSelect = useCallback((file: File) => {
-    setSelectedImage(file);
-    const previewUrl = URL.createObjectURL(file);
-    setImagePreviewUrl(previewUrl);
-    setState("source-select");
+  // Update preview URL when selected image index changes
+  useEffect(() => {
+    if (selectedImages.length === 1 && selectedImageIndex === null) {
+      // Single photo: automatically select index 0 and proceed
+      setSelectedImageIndex(0);
+      setState("source-select");
+      return;
+    }
+    
+    if (selectedImages.length > 0 && selectedImageIndex !== null) {
+      // Update preview URL when index changes (for gallery selection or single photo)
+      const previewUrl = URL.createObjectURL(selectedImages[selectedImageIndex]);
+      setImagePreviewUrl(previewUrl);
+      return () => {
+        URL.revokeObjectURL(previewUrl);
+      };
+    } else if (selectedImages.length === 0) {
+      setImagePreviewUrl(null);
+    }
+  }, [selectedImages, selectedImageIndex]);
+
+  // Called when images are selected
+  const handleImagesSelect = useCallback((files: File[]) => {
+    setSelectedImages(files);
+    if (files.length === 1) {
+      // Single photo: will be handled by useEffect to automatically select and proceed
+      setSelectedImageIndex(null); // Reset to trigger useEffect
+    } else if (files.length > 1) {
+      // Multiple photos: default to first image but stay in upload state to show gallery
+      setSelectedImageIndex(0);
+      setState("upload"); // Stay in upload state to show gallery
+    } else {
+      setSelectedImageIndex(null);
+    }
+  }, []);
+
+  // Called when user selects an image from the gallery
+  const handleGalleryImageSelect = useCallback((index: number) => {
+    setSelectedImageIndex(index);
+    setState("source-select"); // Proceed to source selection after selection
   }, []);
 
   // Analyze image and get random recommendations
   const analyzeImageAndGetRandom = useCallback(async () => {
-    if (!selectedImage) return;
+    if (selectedImages.length === 0 || selectedImageIndex === null) return;
+    const selectedImage = selectedImages[selectedImageIndex];
     
     lastSourceRef.current = { type: "random" };
     setState("analyzing");
@@ -152,7 +188,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImage]);
+  }, [selectedImages, selectedImageIndex]);
 
   // Generate music using Supabase function (Hugging Face API) for real music
   const handleGenerateMusic = useCallback(async (analysis: {
@@ -279,7 +315,8 @@ const Index = () => {
 
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
-    if (!selectedImage) return;
+    if (selectedImages.length === 0 || selectedImageIndex === null) return;
+    const selectedImage = selectedImages[selectedImageIndex];
     
     lastSourceRef.current = { type: "playlist", token: accessToken, playlist: playlistId };
     setState("analyzing");
@@ -367,7 +404,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImage, musicMode, handleGenerateMusic]);
+  }, [selectedImages, selectedImageIndex, musicMode, handleGenerateMusic]);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -451,7 +488,9 @@ const Index = () => {
   const handleClear = useCallback(() => {
     setGeneratedTrack(null);
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    setSelectedImage(null);
+    // Note: Preview URLs for gallery thumbnails are cleaned up by PhotoUpload component's useEffect
+    setSelectedImages([]);
+    setSelectedImageIndex(null);
     setImagePreviewUrl(null);
     setMoodData(null);
     setSongs([]);
@@ -529,8 +568,10 @@ const Index = () => {
           {/* Photo Mode - Upload */}
           {vibeMode === "photo" && state === "upload" && (
             <PhotoUpload
-              onImageSelect={handleImageSelect}
-              selectedImage={selectedImage}
+              onImagesSelect={handleImagesSelect}
+              selectedImages={selectedImages}
+              selectedImageIndex={selectedImageIndex}
+              onImageSelect={handleGalleryImageSelect}
               onClear={handleClear}
             />
           )}
@@ -568,7 +609,8 @@ const Index = () => {
                   </div>
                   <Button
                     onClick={async () => {
-                      if (!selectedImage) return;
+                      if (selectedImages.length === 0 || selectedImageIndex === null) return;
+                      const selectedImage = selectedImages[selectedImageIndex];
                       lastSourceRef.current = { type: "random" };
                       setState("analyzing");
                       

@@ -1,31 +1,45 @@
-import { useState, useCallback } from "react";
-import { Upload, Image as ImageIcon, X } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { Upload, Image as ImageIcon, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PhotoUploadProps {
-  onImageSelect: (file: File) => void;
-  selectedImage: File | null;
+  onImagesSelect: (files: File[]) => void;
+  selectedImages: File[];
+  selectedImageIndex: number | null;
+  onImageSelect: (index: number) => void;
   onClear: () => void;
 }
 
-export function PhotoUpload({ onImageSelect, selectedImage, onClear }: PhotoUploadProps) {
+export function PhotoUpload({ onImagesSelect, selectedImages, selectedImageIndex, onImageSelect, onClear }: PhotoUploadProps) {
   const [isDragActive, setIsDragActive] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
-  const handleFile = useCallback((file: File) => {
-    if (file.type.startsWith("image/")) {
-      onImageSelect(file);
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
+  // Generate preview URLs for all selected images
+  useEffect(() => {
+    const urls = selectedImages.map(file => URL.createObjectURL(file));
+    setPreviewUrls(urls);
+    
+    // Cleanup function to revoke old URLs
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [selectedImages]);
+
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
+    if (imageFiles.length > 0) {
+      onImagesSelect(imageFiles);
     }
-  }, [onImageSelect]);
+  }, [onImagesSelect]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragActive(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFiles(files);
+    }
+  }, [handleFiles]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -37,23 +51,101 @@ export function PhotoUpload({ onImageSelect, selectedImage, onClear }: PhotoUplo
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFiles(files);
+    }
   };
 
   const handleClear = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
+    // Cleanup all preview URLs
+    previewUrls.forEach(url => URL.revokeObjectURL(url));
+    setPreviewUrls([]);
     onClear();
   };
 
-  if (selectedImage && previewUrl) {
+  // Gallery view for 2+ photos
+  if (selectedImages.length > 1 && previewUrls.length > 1) {
+    const selectedPreviewUrl = selectedImageIndex !== null ? previewUrls[selectedImageIndex] : null;
+    
+    return (
+      <div className="space-y-4 animate-fade-in-up">
+        {/* Gallery */}
+        <div className="space-y-3">
+          <div className="text-center">
+            <h3 className="font-display font-semibold text-lg mb-1">
+              Select a photo
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Choose one photo to generate music from
+            </p>
+          </div>
+          
+          <div className="flex gap-4 overflow-x-auto pb-4 scroll-smooth" style={{ scrollSnapType: 'x mandatory' }}>
+            {selectedImages.map((file, index) => {
+              const isSelected = selectedImageIndex === index;
+              return (
+                <div
+                  key={index}
+                  onClick={() => onImageSelect(index)}
+                  className={cn(
+                    "relative flex-shrink-0 w-32 h-32 cursor-pointer rounded-xl overflow-hidden transition-all duration-300",
+                    isSelected 
+                      ? "ring-2 ring-primary glow-primary scale-105" 
+                      : "ring-2 ring-border hover:ring-primary/50 hover:scale-[1.02]"
+                  )}
+                  style={{ scrollSnapAlign: 'start' }}
+                >
+                  <img
+                    src={previewUrls[index]}
+                    alt={`Photo ${index + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                  {isSelected && (
+                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                      <div className="p-2 rounded-full bg-primary">
+                        <Check className="w-5 h-5 text-primary-foreground" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected photo preview */}
+        {selectedImageIndex !== null && selectedPreviewUrl && (
+          <div className="relative animate-fade-in-up">
+            <div className="glass-card p-2 glow-primary">
+              <div className="relative aspect-square max-w-md mx-auto overflow-hidden rounded-xl">
+                <img
+                  src={selectedPreviewUrl}
+                  alt="Selected"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  onClick={handleClear}
+                  className="absolute top-3 right-3 p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
+                >
+                  <X className="w-5 h-5 text-foreground" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Single photo view (existing behavior)
+  if (selectedImages.length === 1 && previewUrls.length === 1) {
     return (
       <div className="relative animate-fade-in-up">
         <div className="glass-card p-2 glow-primary">
           <div className="relative aspect-square max-w-md mx-auto overflow-hidden rounded-xl">
             <img
-              src={previewUrl}
+              src={previewUrls[0]}
               alt="Selected"
               className="w-full h-full object-cover"
             />
@@ -86,6 +178,7 @@ export function PhotoUpload({ onImageSelect, selectedImage, onClear }: PhotoUplo
         type="file"
         accept="image/jpeg,image/png,image/webp"
         onChange={handleInputChange}
+        multiple
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
       />
       

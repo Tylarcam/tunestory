@@ -1,0 +1,9 @@
+# Local development dependencies
+# These are only needed for deploying to Modal, not for local development
+
+# Modal CLI for deployment
+modal>=0.62.0
+
+# Note: torch, torchaudio, and audiocraft are installed in the Modal container
+# You don't need them locally unless you're testing AudioCraft locally
+
