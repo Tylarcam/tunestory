@@ -52,11 +52,31 @@ export function GeneratedMusicCard({
     setIsPlaying(!isPlaying);
   };
   
-  const handleDownload = () => {
-    const a = document.createElement("a");
-    a.href = audioUrl;
-    a.download = `tunestory-audiocraft-${Date.now()}.wav`;
-    a.click();
+  const handleDownload = async () => {
+    try {
+      // Convert data URL to Blob for better mobile compatibility
+      const response = await fetch(audioUrl);
+      const blob = await response.blob();
+      
+      // Create object URL from blob
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // Create download link
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = `tunestory-${Date.now()}.wav`;
+      
+      // For iOS Safari - append to DOM temporarily
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Cleanup
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+    } catch (error) {
+      // Fallback: open in new tab for manual save
+      window.open(audioUrl, '_blank');
+    }
   };
   
   const formatTime = (seconds: number) => {
