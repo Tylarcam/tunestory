@@ -31,15 +31,15 @@ export function GenreSelect({
         )}
       </div>
       <Select
-        value={value || ""}
-        onValueChange={(val) => onChange(val || null)}
+        value={value || "none"}
+        onValueChange={(val) => onChange(val === "none" ? null : val)}
         disabled={disabled}
       >
         <SelectTrigger id="genre-select">
           <SelectValue placeholder="Select a genre (optional)" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="">None (use AI suggestion)</SelectItem>
+          <SelectItem value="none">None (use AI suggestion)</SelectItem>
           {genres.map((genre) => (
             <SelectItem key={genre.id} value={genre.id}>
               <span className="flex items-center gap-2">
