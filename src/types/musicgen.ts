@@ -10,6 +10,8 @@ export interface MusicGenPrompt {
   description: string
   setting: string
   time_of_day: string
+  styleLevel?: number
+  vocalType?: 'instrumental' | 'minimal-vocals' | 'vocal-focused'
   visualElements: {
     colors: string[]
     instruments?: string[]

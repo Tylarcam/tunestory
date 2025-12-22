@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, Settings, ChevronDown, ChevronUp } from "lucide-react";
+import { Save, Settings, ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 import { GenreSelect } from "./GenreSelect";
 import { PresetDropdown } from "./PresetDropdown";
 import { PresetSaveModal } from "./PresetSaveModal";
@@ -33,12 +33,17 @@ interface MusicRefinementControlsProps {
   userVibeText: string;
   showAdvanced: boolean;
   currentPresetId: string | null;
+  styleLevel: number;
+  vocalType: 'instrumental' | 'minimal-vocals' | 'vocal-focused';
   onGenreChange: (genre: string) => void;
   onInstrumentsChange: (instruments: string[]) => void;
   onEnergyChange: (energy: string) => void;
   onBlendRatioChange: (ratio: number) => void;
   onVibeTextChange: (text: string) => void;
   onShowAdvancedChange: (show: boolean) => void;
+  onStyleLevelChange: (level: number) => void;
+  onVocalTypeChange: (type: 'instrumental' | 'minimal-vocals' | 'vocal-focused') => void;
+  onGenerateVariations?: () => void;
   onSavePreset: (preset: Preset) => void;
   onLoadPreset: (presetId: string) => void;
   onDeletePreset: (presetId: string) => void;
@@ -57,12 +62,17 @@ export function MusicRefinementControls({
   userVibeText,
   showAdvanced,
   currentPresetId,
+  styleLevel,
+  vocalType,
   onGenreChange,
   onInstrumentsChange,
   onEnergyChange,
   onBlendRatioChange,
   onVibeTextChange,
   onShowAdvancedChange,
+  onStyleLevelChange,
+  onVocalTypeChange,
+  onGenerateVariations,
   onSavePreset,
   onLoadPreset,
   onDeletePreset,
@@ -240,6 +250,61 @@ export function MusicRefinementControls({
               </div>
             </RadioGroup>
           </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Style: {styleLevel}</Label>
+              <span className="text-xs text-muted-foreground">Controls production quality and era</span>
+            </div>
+            <Slider
+              value={[styleLevel]}
+              onValueChange={([value]) => onStyleLevelChange(value)}
+              min={0}
+              max={10}
+              step={1}
+              disabled={disabled}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Lo-fi / Vintage</span>
+              <span>Cinematic / Modern</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Vocals</Label>
+            <RadioGroup
+              value={vocalType}
+              onValueChange={(value) => onVocalTypeChange(value as 'instrumental' | 'minimal-vocals' | 'vocal-focused')}
+              disabled={disabled}
+              className="flex gap-4"
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="instrumental" id="vocal-instrumental" />
+                <Label htmlFor="vocal-instrumental" className="cursor-pointer">🎵 Instrumental</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="minimal-vocals" id="vocal-minimal" />
+                <Label htmlFor="vocal-minimal" className="cursor-pointer">🎤 Minimal Vocals</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="vocal-focused" id="vocal-focused" />
+                <Label htmlFor="vocal-focused" className="cursor-pointer">🎙️ Vocal-focused</Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          {onGenerateVariations && (
+            <Button
+              variant="default"
+              onClick={onGenerateVariations}
+              disabled={disabled}
+              className="w-full gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              Generate 3 Variations
+            </Button>
+          )}
 
           <div className="flex gap-2 pt-2">
             <Button

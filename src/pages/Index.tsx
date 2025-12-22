@@ -15,6 +15,8 @@ import { MusicGenOptions } from "@/components/MusicGenOptions";
 import { PhotoAnalysisDisplay } from "@/components/PhotoAnalysisDisplay";
 import { MusicRefinementControls } from "@/components/MusicRefinementControls";
 import { PromptEditor } from "@/components/PromptEditor";
+import { VariationComparison } from "@/components/VariationComparison";
+import { VariationStrategySelector } from "@/components/VariationStrategySelector";
 import { Music2, Sparkles, Info } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -93,9 +95,17 @@ const Index = () => {
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [currentPresetId, setCurrentPresetId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  // Creator Mode enhanced parameters
+  const [styleLevel, setStyleLevel] = useState<number>(5); // 0-10, default 5
+  const [vocalType, setVocalType] = useState<'instrumental' | 'minimal-vocals' | 'vocal-focused'>('instrumental');
+  const [variationStrategy, setVariationStrategy] = useState<'seed' | 'params' | 'both'>('both');
+  const [generatedVariations, setGeneratedVariations] = useState<GeneratedTrack[]>([]);
+  const [showVariationStrategy, setShowVariationStrategy] = useState<boolean>(false);
+  const [isGeneratingVariations, setIsGeneratingVariations] = useState<boolean>(false);
   // Prompt editing state
   const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
   const [isPromptEdited, setIsPromptEdited] = useState<boolean>(false);
+  const [isAugmentingPrompt, setIsAugmentingPrompt] = useState<boolean>(false);
   
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
@@ -170,6 +180,8 @@ const Index = () => {
         energyLevel,
         blendRatio,
         userVibeText,
+        styleLevel,
+        vocalType,
       },
       userPreferences
     );
@@ -187,12 +199,14 @@ const Index = () => {
       description: refined.description,
       setting: refined.setting || "",
       time_of_day: refined.time_of_day || "",
+      styleLevel: refined.styleLevel,
+      vocalType: refined.vocalType,
       visualElements: {
         colors: refined.visualElements.colors || [],
         instruments: refined.visualElements.instruments || [],
       },
     });
-  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, userPreferences]);
+  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, styleLevel, vocalType, userPreferences]);
 
   // Reset edited prompt when refinement controls change (unless user explicitly edited)
   useEffect(() => {
@@ -331,6 +345,8 @@ const Index = () => {
     description?: string;
     setting?: string;
     time_of_day?: string;
+    styleLevel?: number;
+    vocalType?: 'instrumental' | 'minimal-vocals' | 'vocal-focused';
     visualElements?: {
       colors?: string[];
       instruments?: string[];
@@ -370,6 +386,9 @@ const Index = () => {
             // MusicGen options
             model: musicGenModel,
             duration: musicGenDuration,
+            // Creator Mode parameters
+            styleLevel: analysis.styleLevel ?? styleLevel,
+            vocalType: analysis.vocalType ?? vocalType,
             // Custom prompt override (if user edited it)
             customPrompt: customPrompt || undefined
           }),
@@ -452,7 +471,164 @@ const Index = () => {
     } finally {
       setIsGenerating(false);
     }
-  }, [musicGenModel, musicGenDuration]);
+  }, [musicGenModel, musicGenDuration, styleLevel, vocalType]);
+
+  // Generate multiple variations
+  const handleGenerateVariations = useCallback(async () => {
+    if (!lastAnalysis) return;
+    
+    setIsGeneratingVariations(true);
+    setState("gathering");
+    setGeneratedVariations([]);
+    
+    try {
+      const refined = buildRefinedAnalysis(
+        lastAnalysis,
+        {
+          selectedGenre,
+          selectedInstruments,
+          energyLevel,
+          blendRatio,
+          userVibeText,
+          styleLevel,
+          vocalType,
+        },
+        userPreferences
+      );
+
+      // Convert energy string to number
+      const energyNum = typeof refined.energy === "string"
+        ? refined.energy === "High" ? 8 : refined.energy === "Medium" ? 5 : 3
+        : refined.energy;
+
+      // Generate variations based on strategy
+      const variations: GeneratedTrack[] = [];
+      const basePrompt = editedPrompt || finalPrompt;
+
+      if (variationStrategy === 'seed' || variationStrategy === 'both') {
+        // Generate 2 variations with different seeds (same prompt)
+        for (let i = 0; i < 2; i++) {
+          const response = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+              },
+              body: JSON.stringify({
+                mood: refined.mood,
+                energy: typeof refined.energy === 'string' ? refined.energy : (refined.energy >= 7 ? 'High' : refined.energy >= 4 ? 'Medium' : 'Low'),
+                genres: refined.genres,
+                tempo_bpm: refined.tempo_bpm || 120,
+                description: refined.description || '',
+                setting: refined.setting || '',
+                time_of_day: refined.time_of_day || '',
+                visualElements: refined.visualElements || {},
+                model: musicGenModel,
+                duration: musicGenDuration,
+                styleLevel: refined.styleLevel,
+                vocalType: refined.vocalType,
+                customPrompt: basePrompt,
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              variations.push({
+                success: true,
+                audioUrl: data.audioUrl,
+                prompt: data.prompt || basePrompt,
+                metadata: {
+                  model: data.metadata?.model || 'AudioCraft MusicGen',
+                  duration: data.metadata?.duration || 30,
+                  status: 'generated',
+                  framework: data.metadata?.framework || 'AudioCraft'
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (variationStrategy === 'params' || variationStrategy === 'both') {
+        // Generate variations with different style/energy combinations
+        const paramVariations = [
+          { style: Math.max(0, styleLevel - 2), energy: energyLevel || 'Medium' },
+          { style: Math.min(10, styleLevel + 2), energy: energyLevel || 'Medium' },
+          { style: styleLevel, energy: energyLevel === 'High' ? 'Medium' : energyLevel === 'Low' ? 'Medium' : 'High' },
+        ];
+
+        for (const params of paramVariations) {
+          const response = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+              },
+              body: JSON.stringify({
+                mood: refined.mood,
+                energy: params.energy,
+                genres: refined.genres,
+                tempo_bpm: refined.tempo_bpm || 120,
+                description: refined.description || '',
+                setting: refined.setting || '',
+                time_of_day: refined.time_of_day || '',
+                visualElements: refined.visualElements || {},
+                model: musicGenModel,
+                duration: musicGenDuration,
+                styleLevel: params.style,
+                vocalType: refined.vocalType,
+                customPrompt: undefined, // Let backend build prompt with new params
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              variations.push({
+                success: true,
+                audioUrl: data.audioUrl,
+                prompt: data.prompt || basePrompt,
+                metadata: {
+                  model: data.metadata?.model || 'AudioCraft MusicGen',
+                  duration: data.metadata?.duration || 30,
+                  status: 'generated',
+                  framework: data.metadata?.framework || 'AudioCraft'
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (variations.length > 0) {
+        setGeneratedVariations(variations);
+        setState("results");
+        toast({
+          title: "Variations Generated!",
+          description: `${variations.length} variations ready to compare.`,
+        });
+      } else {
+        throw new Error("Failed to generate variations");
+      }
+    } catch (error) {
+      console.error('Variation generation error:', error);
+      toast({
+        title: "Generation Failed",
+        description: error instanceof Error ? error.message : "Failed to generate variations. Please try again.",
+        variant: "destructive",
+      });
+      setState("refining");
+    } finally {
+      setIsGeneratingVariations(false);
+    }
+  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, styleLevel, vocalType, userPreferences, variationStrategy, editedPrompt, finalPrompt, musicGenModel, musicGenDuration]);
 
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
@@ -595,7 +771,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImages, selectedImageIndex, musicMode, handleGenerateMusic, userPreferences]);
+  }, [selectedImages, selectedImageIndex, musicMode, userPreferences]);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -689,6 +865,8 @@ const Index = () => {
     setEnergyLevel(null);
     setBlendRatio(30);
     setUserVibeText("");
+    setStyleLevel(5); // Reset to default
+    setVocalType('instrumental'); // Reset to default
     
     // Check for preset match
     if (mappedInstruments.length > 0) {
@@ -787,6 +965,7 @@ const Index = () => {
 
   const handleClear = useCallback(() => {
     setGeneratedTrack(null);
+    setGeneratedVariations([]);
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     // Note: Preview URLs for gallery thumbnails are cleaned up by PhotoUpload component's useEffect
     setSelectedImages([]);
@@ -801,6 +980,8 @@ const Index = () => {
     setEnergyLevel(null);
     setBlendRatio(30);
     setUserVibeText("");
+    setStyleLevel(5);
+    setVocalType('instrumental');
     setCurrentPresetId(null);
     setHasUnsavedChanges(false);
     // Reset prompt editing state
@@ -822,6 +1003,8 @@ const Index = () => {
             energyLevel,
             blendRatio,
             userVibeText,
+            styleLevel,
+            vocalType,
           },
           userPreferences
         );
@@ -839,7 +1022,7 @@ const Index = () => {
     } else if (vibeMode === "music") {
       handleMusicAnalysis();
     }
-  }, [vibeMode, musicMode, lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, userPreferences, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis, editedPrompt, finalPrompt]);
+  }, [vibeMode, musicMode, lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, styleLevel, vocalType, userPreferences, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis, editedPrompt, finalPrompt]);
 
   const handleModeChange = (mode: VibeMode) => {
     if (state === "results" || state === "source-select") {
@@ -1121,12 +1304,17 @@ const Index = () => {
                 userVibeText={userVibeText}
                 showAdvanced={showAdvanced}
                 currentPresetId={currentPresetId}
+                styleLevel={styleLevel}
+                vocalType={vocalType}
                 onGenreChange={setSelectedGenre}
                 onInstrumentsChange={setSelectedInstruments}
                 onEnergyChange={setEnergyLevel}
                 onBlendRatioChange={setBlendRatio}
                 onVibeTextChange={setUserVibeText}
                 onShowAdvancedChange={setShowAdvanced}
+                onStyleLevelChange={setStyleLevel}
+                onVocalTypeChange={setVocalType}
+                onGenerateVariations={() => setShowVariationStrategy(true)}
                 onSavePreset={handleSavePreset}
                 onLoadPreset={handleLoadPreset}
                 onDeletePreset={handleDeletePreset}
@@ -1145,6 +1333,12 @@ const Index = () => {
                   setIsPromptEdited(false);
                 }}
                 disabled={isGenerating}
+                context={{
+                  genre: selectedGenre || lastAnalysis?.genres[0],
+                  mood: lastAnalysis?.mood,
+                  energy: energyLevel || (typeof lastAnalysis?.energy === "string" ? lastAnalysis.energy : "Medium"),
+                  instruments: selectedInstruments,
+                }}
               />
 
               <Button
@@ -1171,6 +1365,8 @@ const Index = () => {
                       energyLevel,
                       blendRatio,
                       userVibeText,
+                      styleLevel,
+                      vocalType,
                     },
                     userPreferences
                   );
@@ -1242,6 +1438,8 @@ const Index = () => {
                           energyLevel,
                           blendRatio,
                           userVibeText,
+                          styleLevel,
+                          vocalType,
                         },
                         userPreferences
                       );
@@ -1317,6 +1515,19 @@ const Index = () => {
             </div>
           )}
         </main>
+
+        {/* Variation Strategy Selector */}
+        <VariationStrategySelector
+          open={showVariationStrategy}
+          onOpenChange={setShowVariationStrategy}
+          strategy={variationStrategy}
+          onStrategyChange={setVariationStrategy}
+          onConfirm={() => {
+            setShowVariationStrategy(false);
+            handleGenerateVariations();
+          }}
+          disabled={isGeneratingVariations || isGenerating}
+        />
 
         {/* Footer */}
         <footer className="text-center mt-16 text-sm text-muted-foreground">
