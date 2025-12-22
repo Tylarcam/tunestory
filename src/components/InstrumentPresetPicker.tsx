@@ -1,7 +1,20 @@
+import { useState } from "react";
 import { Label } from "@/components/ui/label";
-import { Music, Headphones, Piano, Guitar } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Music, Headphones, Piano, Guitar, ChevronDown, Settings2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getAllPresets, type InstrumentPreset } from "@/lib/instrumentOptions";
+import {
+  getAllPresets,
+  getAllCategories,
+  getInstrument,
+  type InstrumentPreset,
+} from "@/lib/instrumentOptions";
 
 interface InstrumentPresetPickerProps {
   selectedInstruments: string[];
@@ -21,7 +34,9 @@ export function InstrumentPresetPicker({
   onInstrumentsChange,
   disabled = false,
 }: InstrumentPresetPickerProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const presets = getAllPresets();
+  const categories = getAllCategories();
   
   // Find which preset matches current selection
   const activePresetId = presets.find(
@@ -33,6 +48,21 @@ export function InstrumentPresetPicker({
   const handleSelectPreset = (preset: InstrumentPreset) => {
     if (disabled) return;
     onInstrumentsChange([...preset.instruments]);
+  };
+
+  const handleToggleInstrument = (instrumentId: string) => {
+    if (disabled) return;
+    
+    if (selectedInstruments.includes(instrumentId)) {
+      onInstrumentsChange(selectedInstruments.filter((id) => id !== instrumentId));
+    } else {
+      onInstrumentsChange([...selectedInstruments, instrumentId]);
+    }
+  };
+
+  const handleClearAll = () => {
+    if (disabled) return;
+    onInstrumentsChange([]);
   };
 
   return (
@@ -49,6 +79,7 @@ export function InstrumentPresetPicker({
         )}
       </div>
 
+      {/* Preset Grid */}
       <div className="grid grid-cols-2 gap-2">
         {presets.slice(0, 4).map((preset) => {
           const isActive = activePresetId === preset.id;
@@ -86,9 +117,103 @@ export function InstrumentPresetPicker({
         })}
       </div>
 
-      <p className="text-xs text-muted-foreground text-center">
-        Choose a style or customize after analysis
-      </p>
+      {/* Advanced Settings Collapsible */}
+      <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-between text-muted-foreground hover:text-foreground"
+            disabled={disabled}
+          >
+            <span className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4" />
+              Advanced: Pick Your Own
+            </span>
+            <ChevronDown className={cn(
+              "w-4 h-4 transition-transform",
+              showAdvanced && "rotate-180"
+            )} />
+          </Button>
+        </CollapsibleTrigger>
+        
+        <CollapsibleContent className="space-y-4 pt-3">
+          {/* Selected Instruments Display */}
+          {selectedInstruments.length > 0 && (
+            <div className="flex flex-wrap gap-2 p-3 rounded-lg bg-muted/50">
+              {selectedInstruments.map((id) => {
+                const instrument = getInstrument(id);
+                if (!instrument) return null;
+                return (
+                  <Badge
+                    key={id}
+                    variant="secondary"
+                    className="flex items-center gap-1 pr-1"
+                  >
+                    <span>{instrument.icon}</span>
+                    <span>{instrument.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleInstrument(id)}
+                      className="ml-1 p-0.5 rounded-full hover:bg-background/50"
+                      disabled={disabled}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                );
+              })}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearAll}
+                className="h-6 text-xs text-muted-foreground"
+                disabled={disabled}
+              >
+                Clear all
+              </Button>
+            </div>
+          )}
+
+          {/* Category-based Instrument Selection */}
+          {categories.map((category) => (
+            <div key={category.id} className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+                <span>{category.icon}</span>
+                {category.label}
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {category.instruments.map((instrumentId) => {
+                  const instrument = getInstrument(instrumentId);
+                  if (!instrument) return null;
+                  
+                  const isSelected = selectedInstruments.includes(instrumentId);
+                  
+                  return (
+                    <button
+                      key={instrumentId}
+                      type="button"
+                      onClick={() => handleToggleInstrument(instrumentId)}
+                      disabled={disabled}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-all",
+                        "border focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
+                        "disabled:pointer-events-none disabled:opacity-50",
+                        isSelected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                      )}
+                    >
+                      <span>{instrument.icon}</span>
+                      <span>{instrument.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
