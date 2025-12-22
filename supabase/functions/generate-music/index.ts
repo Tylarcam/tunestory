@@ -26,6 +26,9 @@ const requestSchema = z.object({
     timeOfDay: z.string().max(50).optional(),
     atmosphere: z.string().max(200).optional(),
   }).optional(),
+  model: z.enum(['small', 'medium', 'large', 'melody']).optional().default('small'),
+  duration: z.number().min(10).max(60).optional().default(30),
+  customPrompt: z.string().max(500).optional(), // Custom prompt override
 });
 
 serve(async (req) => {
@@ -66,11 +69,14 @@ serve(async (req) => {
       description, 
       setting,
       time_of_day,
-      visualElements 
+      visualElements,
+      model,
+      duration,
+      customPrompt
     } = parseResult.data;
   
-    // Build AudioCraft-optimized prompt
-    const musicPrompt = buildMusicGenPrompt({
+    // Use custom prompt if provided, otherwise build from analysis
+    const musicPrompt = customPrompt || buildMusicGenPrompt({
       mood,
       energy,
       genres,
@@ -82,6 +88,9 @@ serve(async (req) => {
     });
   
     console.log('🎵 AudioCraft prompt:', musicPrompt);
+    if (customPrompt) {
+      console.log('   (Using custom prompt from user)');
+    }
   
     // Get Modal API URL from environment
     const MODAL_API_URL = Deno.env.get('MODAL_API_URL');
@@ -107,8 +116,9 @@ serve(async (req) => {
 
     const modalRequestBody = {
       prompt: musicPrompt,
-      duration: 30,
-      temperature: 1.0
+      duration: duration || 30,
+      temperature: 1.0,
+      model: model || 'small'
     };
 
     console.log('Request body:', JSON.stringify(modalRequestBody, null, 2));
@@ -245,15 +255,23 @@ serve(async (req) => {
     console.log('✅ Generated audio:', modalData.size_bytes, 'bytes');
     console.log('   Generation time:', modalData.generation_time_seconds, 'seconds');
   
+    // Determine model name for metadata
+    const modelNames: Record<string, string> = {
+      small: 'AudioCraft MusicGen Small (Meta Research)',
+      medium: 'AudioCraft MusicGen Medium (Meta Research)',
+      large: 'AudioCraft MusicGen Large (Meta Research)',
+      melody: 'AudioCraft MusicGen Melody (Meta Research)'
+    };
+    
     return new Response(
       JSON.stringify({
         success: true,
         audioUrl: audioDataUrl,
         prompt: musicPrompt,
         metadata: {
-          model: 'AudioCraft MusicGen Small (Meta Research)',
-          version: 'facebook/musicgen-small',
-          duration: modalData.duration || 30,
+          model: modelNames[model || 'small'] || 'AudioCraft MusicGen Small (Meta Research)',
+          version: `facebook/musicgen-${model || 'small'}`,
+          duration: modalData.duration || duration || 30,
           status: 'generated',
           format: 'wav',
           size: modalData.size_bytes,

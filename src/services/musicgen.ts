@@ -9,6 +9,7 @@ import type {
   GeneratedTrack,
   MusicGenPrompt 
 } from '@/types/musicgen'
+import { buildInstrumentPrompt } from '@/lib/instrumentOptions'
 
 // Local server URL (change if running on different port)
 const MUSICGEN_API_URL = 'http://localhost:8000'
@@ -40,9 +41,9 @@ export function buildMusicGenPrompt(analysis: MusicGenPrompt): string {
   // Map energy to dynamics
   const energyDescriptor = getEnergyDescriptor(energy)
   
-  // Get instruments
+  // Get instruments - use buildInstrumentPrompt if we have instrument IDs, otherwise use genre defaults
   const instruments = visualElements.instruments?.length 
-    ? visualElements.instruments.slice(0, 3).join(', ')
+    ? buildInstrumentPrompt(visualElements.instruments)
     : getDefaultInstruments(genre)
   
   // Build concise prompt (MusicGen works best with 10-25 words)
@@ -139,7 +140,8 @@ export async function generateMusic(
         prompt: request.prompt,
         duration: request.duration || 30,
         temperature: request.temperature || 1.0,
-        model_size: request.model_size || 'small'
+        model_size: request.model_size || request.model || 'small',
+        model: request.model || request.model_size || 'small'
       })
     })
     
