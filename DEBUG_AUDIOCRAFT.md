@@ -6,7 +6,8 @@
 
 **Issue**: `HUGGINGFACE_API_KEY not configured`
 
-**Solution**: 
+**Solution**:
+
 - Go to Supabase Dashboard → Settings → Edge Functions → Secrets
 - Add secret: `HUGGINGFACE_API_KEY` with value `hf_your_token_here`
 - Get token from: https://huggingface.co/settings/tokens
@@ -15,10 +16,12 @@
 ### 2. Check Edge Function Logs
 
 View logs in Supabase Dashboard:
+
 - Go to Edge Functions → generate-music → Logs
 - Look for error messages starting with `❌`
 
 Common errors you might see:
+
 - `401 Unauthorized` → API key is invalid
 - `503 Service Unavailable` → Model is loading (wait 20-30 seconds)
 - `400 Bad Request` → Request format is incorrect
@@ -27,6 +30,7 @@ Common errors you might see:
 ### 3. MusicGen via Hugging Face Inference API Limitations
 
 **Important**: The Hugging Face Inference API may not support MusicGen models directly. MusicGen models are large (3.3B parameters) and may require:
+
 - Inference Endpoints (paid)
 - Custom deployment
 - Alternative API providers
@@ -73,6 +77,7 @@ curl -X POST https://api-inference.huggingface.co/models/facebook/musicgen-large
 ### 6. Check Browser Console
 
 Open browser DevTools → Console and look for:
+
 - Network errors
 - Response details
 - Error messages from the frontend
@@ -92,7 +97,7 @@ The current request format might need adjustment. Check the actual error respons
 ## Next Steps
 
 If Hugging Face Inference API doesn't work:
+
 1. Consider using Replicate API (production-ready, pay-per-use)
 2. Or use a different model that supports Inference API
 3. Or deploy MusicGen yourself (requires GPU)
-

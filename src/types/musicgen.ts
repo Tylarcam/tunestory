@@ -16,11 +16,16 @@ export interface MusicGenPrompt {
   }
 }
 
+export type MusicGenModel = 'small' | 'medium' | 'large' | 'melody'
+export type MusicGenDecoder = 'default' | 'multiband_diffusion'
+
 export interface MusicGenRequest {
   prompt: string
   duration?: number  // seconds (1-30)
   temperature?: number  // 0.1-2.0
-  model_size?: 'small' | 'medium' | 'large' | 'melody'
+  model_size?: MusicGenModel
+  model?: MusicGenModel  // Alias for model_size for consistency
+  decoder?: MusicGenDecoder  // 'default' or 'multiband_diffusion'
 }
 
 export interface MusicGenMetadata {

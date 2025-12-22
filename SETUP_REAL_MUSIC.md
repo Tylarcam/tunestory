@@ -129,3 +129,4 @@ If Hugging Face doesn't work, Replicate is more reliable:
 The code is already updated to use Supabase function instead of the mock server.
 
 
+

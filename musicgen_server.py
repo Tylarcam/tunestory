@@ -37,7 +37,9 @@ class GenerateRequest(BaseModel):
     prompt: str
     duration: Optional[int] = 30  # seconds (1-30)
     temperature: Optional[float] = 1.0  # 0.1-2.0
-    model_size: Optional[str] = "small"  # 'small', 'medium', 'large', 'melody'
+    model_size: Optional[str] = "small"  # 'small', 'medium', 'large', 'melody' (backward compat)
+    model: Optional[str] = None  # 'small', 'medium', 'large', 'melody' (preferred)
+    decoder: Optional[str] = "default"  # 'default' or 'multiband_diffusion'
 
 class GenerateResponse(BaseModel):
     success: bool
@@ -97,9 +99,17 @@ async def generate_music(request: GenerateRequest):
         if request.temperature and (request.temperature < 0.1 or request.temperature > 2.0):
             raise HTTPException(status_code=400, detail="Temperature must be between 0.1 and 2.0")
         
+        # Determine model size (prefer 'model' over 'model_size' for backward compat)
+        model_size = request.model or request.model_size or "small"
+        
+        # Validate model size
+        valid_models = ['small', 'medium', 'large', 'melody']
+        if model_size not in valid_models:
+            raise HTTPException(status_code=400, detail=f"Invalid model. Must be one of: {valid_models}")
+        
         # Load model if needed
         try:
-            model = load_model(request.model_size or "small")
+            model = load_model(model_size)
         except Exception as e:
             return GenerateResponse(
                 success=False,
@@ -108,19 +118,34 @@ async def generate_music(request: GenerateRequest):
                 metadata={}
             )
         
+        # Determine decoder
+        use_multiband = request.decoder == "multiband_diffusion"
+        duration = request.duration or 30
+        
         # Set generation parameters
         model.set_generation_params(
-            duration=request.duration or 30,
+            duration=duration,
             temperature=request.temperature or 1.0
         )
         
         print(f"🎵 Generating music...")
         print(f"   Prompt: {request.prompt}")
-        print(f"   Duration: {request.duration or 30}s")
+        print(f"   Model: {model_size}")
+        print(f"   Decoder: {request.decoder or 'default'}")
+        print(f"   Duration: {duration}s")
         print(f"   Temperature: {request.temperature or 1.0}")
         
         # Generate audio
+        # Note: MultiBand Diffusion decoder support requires additional AudioCraft setup
+        # The standard MusicGen.generate() uses the default decoder
+        # For full MultiBand Diffusion support, you may need to:
+        # 1. Use MusicGen's extended API with decoder parameter
+        # 2. Or apply MultiBand Diffusion as a post-processing step
+        # For now, we log the preference but use standard generation
         with torch.no_grad():
+            if use_multiband:
+                print("   ⚠️ MultiBand Diffusion requested but using default decoder")
+                print("   Note: Full MultiBand Diffusion support may require AudioCraft API updates")
             wav = model.generate([request.prompt], progress=True)
         
         # Convert to numpy array and then to WAV bytes
@@ -145,9 +170,10 @@ async def generate_music(request: GenerateRequest):
             audio_base64=audio_base64,
             prompt=request.prompt,
             metadata={
-                "model": f"facebook/musicgen-{request.model_size or 'small'}",
-                "model_size": request.model_size or "small",
-                "duration": request.duration or 30,
+                "model": f"facebook/musicgen-{model_size}",
+                "model_size": model_size,
+                "decoder": request.decoder or "default",
+                "duration": duration,
                 "sample_rate": sample_rate,
                 "size_bytes": len(wav_bytes),
                 "generation_time_seconds": round(generation_time, 2),

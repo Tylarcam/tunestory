@@ -130,3 +130,4 @@ The code already has fallback logic. Just make sure:
 The mock server is perfect for demonstrating the feature flow, UI, and user experience. You can always add real music generation later.
 
 
+

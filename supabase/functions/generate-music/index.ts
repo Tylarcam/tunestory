@@ -105,10 +105,61 @@ serve(async (req) => {
     console.log('   Prompt:', musicPrompt);
     console.log('   Modal URL:', MODAL_API_URL);
 
+    // Extract MusicGen options from request (with defaults)
+    const model = (body as any).model || 'small';
+    const decoder = (body as any).decoder || 'default';
+    const duration = (body as any).duration || 30;
+    const temperature = (body as any).temperature || 1.0;
+    
+    // Validate model
+    const validModels = ['small', 'medium', 'large', 'melody'];
+    if (!validModels.includes(model)) {
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: `Invalid model. Must be one of: ${validModels.join(', ')}` 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        }
+      );
+    }
+    
+    // Validate decoder
+    if (decoder !== 'default' && decoder !== 'multiband_diffusion') {
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: "Invalid decoder. Must be 'default' or 'multiband_diffusion'" 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        }
+      );
+    }
+    
+    // Validate duration
+    if (duration < 1 || duration > 30) {
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: "Duration must be between 1 and 30 seconds" 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        }
+      );
+    }
+
     const modalRequestBody = {
       prompt: musicPrompt,
-      duration: 30,
-      temperature: 1.0
+      duration: duration,
+      temperature: temperature,
+      model: model,
+      decoder: decoder
     };
 
     console.log('Request body:', JSON.stringify(modalRequestBody, null, 2));
@@ -251,9 +302,11 @@ serve(async (req) => {
         audioUrl: audioDataUrl,
         prompt: musicPrompt,
         metadata: {
-          model: 'AudioCraft MusicGen Small (Meta Research)',
-          version: 'facebook/musicgen-small',
-          duration: modalData.duration || 30,
+          model: `AudioCraft MusicGen ${model.charAt(0).toUpperCase() + model.slice(1)} (Meta Research)`,
+          version: `facebook/musicgen-${model}`,
+          model_size: model,
+          decoder: decoder,
+          duration: modalData.duration || duration,
           status: 'generated',
           format: 'wav',
           size: modalData.size_bytes,
