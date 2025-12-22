@@ -10,6 +10,7 @@ import { GenreSelect } from "./GenreSelect";
 import { PresetDropdown } from "./PresetDropdown";
 import { PresetSaveModal } from "./PresetSaveModal";
 import { InstrumentSelector } from "./InstrumentSelector";
+import { QuickInstrumentSelect } from "./QuickInstrumentSelect";
 import type { UserPreferences, Preset } from "@/lib/localStorage";
 import { createPresetObject } from "@/lib/presetManager";
 import { mapGeminiGenreToOption } from "@/lib/genreOptions";
@@ -148,6 +149,13 @@ export function MusicRefinementControls({
             value={selectedGenre}
             onChange={onGenreChange}
             aiSuggestion={aiGenre}
+            disabled={disabled}
+          />
+
+          <QuickInstrumentSelect
+            selectedGenre={selectedGenre}
+            selectedInstruments={selectedInstruments}
+            onInstrumentsChange={onInstrumentsChange}
             disabled={disabled}
           />
 

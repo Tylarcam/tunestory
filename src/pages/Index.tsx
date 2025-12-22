@@ -14,17 +14,16 @@ import { MusicSourceSelector } from "@/components/MusicSourceSelector";
 import { MusicGenOptions } from "@/components/MusicGenOptions";
 import { PhotoAnalysisDisplay } from "@/components/PhotoAnalysisDisplay";
 import { MusicRefinementControls } from "@/components/MusicRefinementControls";
-import { PromptPreview } from "@/components/PromptPreview";
+import { PromptEditor } from "@/components/PromptEditor";
 import { Music2, Sparkles, Info } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
-import type { MusicGenModel, MusicGenDecoder } from "@/types/musicgen";
+import type { MusicGenModel } from "@/types/musicgen";
 import {
   getUserPreferences,
   setUserPreferences as saveUserPreferences,
   getSavedPresets,
-  setSavedPresets,
   addPreset,
   deletePreset,
   type UserPreferences,
@@ -64,7 +63,6 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   // Music generation options
   const [musicGenModel, setMusicGenModel] = useState<MusicGenModel>('small');
-  const [musicGenDecoder, setMusicGenDecoder] = useState<MusicGenDecoder>('default');
   const [musicGenDuration, setMusicGenDuration] = useState<number>(30);
   const [lastAnalysis, setLastAnalysis] = useState<{
     mood: string;
@@ -95,6 +93,9 @@ const Index = () => {
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [currentPresetId, setCurrentPresetId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  // Prompt editing state
+  const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
+  const [isPromptEdited, setIsPromptEdited] = useState<boolean>(false);
   
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
@@ -134,7 +135,7 @@ const Index = () => {
         setBlendRatio(userPreferences.defaultBlendRatio);
       }
     }
-  }, [lastAnalysis, userPreferences]);
+  }, [lastAnalysis, userPreferences, blendRatio, energyLevel, selectedGenre, selectedInstruments.length]);
 
   // Update preview URL when selected image index changes
   useEffect(() => {
@@ -192,6 +193,13 @@ const Index = () => {
       },
     });
   }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, userPreferences]);
+
+  // Reset edited prompt when refinement controls change (unless user explicitly edited)
+  useEffect(() => {
+    if (!isPromptEdited && lastAnalysis) {
+      setEditedPrompt(null);
+    }
+  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, isPromptEdited]);
 
   // Called when images are selected
   const handleImagesSelect = useCallback((files: File[]) => {
@@ -329,7 +337,8 @@ const Index = () => {
       setting?: string;
       timeOfDay?: string;
     };
-  }) => {
+  }, customPrompt?: string) => {
+    // Use custom prompt if provided, otherwise backend will build from analysis
     setIsGenerating(true);
     setState("gathering");
     
@@ -360,8 +369,9 @@ const Index = () => {
             visualElements: analysis.visualElements || {},
             // MusicGen options
             model: musicGenModel,
-            decoder: musicGenDecoder,
-            duration: musicGenDuration
+            duration: musicGenDuration,
+            // Custom prompt override (if user edited it)
+            customPrompt: customPrompt || undefined
           }),
         }
       );
@@ -408,10 +418,13 @@ const Index = () => {
       }
 
       // Supabase function returns audioUrl directly (data URL)
+      // Use custom prompt if provided, otherwise use the one from response
+      const finalPromptUsed = customPrompt || data.prompt || '';
+      
       const trackData: GeneratedTrack = {
         success: true,
         audioUrl: data.audioUrl,
-        prompt: data.prompt,
+        prompt: finalPromptUsed,
         metadata: {
           model: data.metadata?.model || 'AudioCraft MusicGen Large',
           duration: data.metadata?.duration || 30,
@@ -439,7 +452,7 @@ const Index = () => {
     } finally {
       setIsGenerating(false);
     }
-  }, [musicGenModel, musicGenDecoder, musicGenDuration]);
+  }, [musicGenModel, musicGenDuration]);
 
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
@@ -532,6 +545,9 @@ const Index = () => {
           }
         }
         
+        // Reset prompt editing state when starting new refinement
+        setEditedPrompt(null);
+        setIsPromptEdited(false);
         // Show refinement UI instead of generating directly
         setState("refining");
       } else {
@@ -579,7 +595,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImages, selectedImageIndex, musicMode, handleGenerateMusic]);
+  }, [selectedImages, selectedImageIndex, musicMode, handleGenerateMusic, userPreferences]);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -787,6 +803,9 @@ const Index = () => {
     setUserVibeText("");
     setCurrentPresetId(null);
     setHasUnsavedChanges(false);
+    // Reset prompt editing state
+    setEditedPrompt(null);
+    setIsPromptEdited(false);
     setState("upload");
   }, [imagePreviewUrl]);
 
@@ -806,7 +825,9 @@ const Index = () => {
           },
           userPreferences
         );
-        await handleGenerateMusic(refined);
+        // Use edited prompt if available, otherwise use auto-generated
+        const promptToUse = editedPrompt || finalPrompt;
+        await handleGenerateMusic(refined, promptToUse);
       } else {
         const { type, token, playlist } = lastSourceRef.current;
         if (type === "playlist" && token && playlist) {
@@ -818,7 +839,7 @@ const Index = () => {
     } else if (vibeMode === "music") {
       handleMusicAnalysis();
     }
-  }, [vibeMode, musicMode, lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, userPreferences, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis]);
+  }, [vibeMode, musicMode, lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, userPreferences, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis, editedPrompt, finalPrompt]);
 
   const handleModeChange = (mode: VibeMode) => {
     if (state === "results" || state === "source-select") {
@@ -920,10 +941,8 @@ const Index = () => {
                   {/* Music Generation Options */}
                   <MusicGenOptions
                     model={musicGenModel}
-                    decoder={musicGenDecoder}
                     duration={musicGenDuration}
                     onModelChange={setMusicGenModel}
-                    onDecoderChange={setMusicGenDecoder}
                     onDurationChange={setMusicGenDuration}
                     disabled={isGenerating}
                   />
@@ -1015,6 +1034,9 @@ const Index = () => {
                           }
                         }
                         
+                        // Reset prompt editing state when starting new refinement
+                        setEditedPrompt(null);
+                        setIsPromptEdited(false);
                         // Show refinement UI instead of generating directly
                         setState("refining");
                       } catch (error) {
@@ -1112,11 +1134,34 @@ const Index = () => {
                 disabled={isGenerating}
               />
 
-              <PromptPreview prompt={finalPrompt} />
+              <PromptEditor
+                prompt={finalPrompt}
+                onPromptChange={(newPrompt) => {
+                  setEditedPrompt(newPrompt);
+                  setIsPromptEdited(newPrompt !== finalPrompt);
+                }}
+                onReset={() => {
+                  setEditedPrompt(null);
+                  setIsPromptEdited(false);
+                }}
+                disabled={isGenerating}
+              />
 
               <Button
                 onClick={async () => {
                   if (!lastAnalysis) return;
+                  
+                  // Use edited prompt if available, otherwise use auto-generated
+                  const promptToUse = editedPrompt || finalPrompt;
+                  
+                  if (!promptToUse.trim()) {
+                    toast({
+                      title: "Prompt Required",
+                      description: "Please enter a prompt for music generation",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
                   
                   const refined = buildRefinedAnalysis(
                     lastAnalysis,
@@ -1130,7 +1175,8 @@ const Index = () => {
                     userPreferences
                   );
 
-                  await handleGenerateMusic(refined);
+                  // Pass custom prompt if user edited it
+                  await handleGenerateMusic(refined, promptToUse);
                 }}
                 className="w-full py-6 text-lg font-semibold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
                 size="lg"
@@ -1199,7 +1245,9 @@ const Index = () => {
                         },
                         userPreferences
                       );
-                      handleGenerateMusic(refined);
+                      // Use edited prompt if available, otherwise use auto-generated
+                      const promptToUse = editedPrompt || finalPrompt;
+                      handleGenerateMusic(refined, promptToUse);
                     }
                   }}
                 />

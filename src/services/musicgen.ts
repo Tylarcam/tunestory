@@ -141,8 +141,7 @@ export async function generateMusic(
         duration: request.duration || 30,
         temperature: request.temperature || 1.0,
         model_size: request.model_size || request.model || 'small',
-        model: request.model || request.model_size || 'small',
-        decoder: request.decoder || 'default'
+        model: request.model || request.model_size || 'small'
       })
     })
     
