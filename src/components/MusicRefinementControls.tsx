@@ -83,22 +83,7 @@ export function MusicRefinementControls({
     setActiveTab(isAdvanced ? "advanced" : "simple");
   };
 
-  const handleSavePreset = (name: string) => {
-    const aiGenre = analysis.genres[0] || "";
-    const genreId = selectedGenre || mapGeminiGenreToOption(aiGenre);
-    const finalEnergy = energyLevel || (typeof analysis.energy === "string" ? analysis.energy : "Medium");
-
-    const preset = createPresetObject(
-      name,
-      {
-        genre: genreId,
-        instruments: selectedInstruments,
-        energy: finalEnergy,
-        blendRatio,
-        vibeTemplate: userVibeText,
-      }
-    );
-
+  const handleSavePreset = (preset: Preset) => {
     onSavePreset(preset);
   };
 
