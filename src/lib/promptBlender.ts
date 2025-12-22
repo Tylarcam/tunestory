@@ -30,6 +30,8 @@ export interface UserRefinements {
   energyLevel: string | null;
   blendRatio: number;
   userVibeText: string;
+  styleLevel?: number; // 0-10, controls production style and era
+  vocalType?: 'instrumental' | 'minimal-vocals' | 'vocal-focused';
 }
 
 export interface RefinedAnalysis {
@@ -40,6 +42,8 @@ export interface RefinedAnalysis {
   tempo_bpm?: number;
   setting?: string;
   time_of_day?: string;
+  styleLevel?: number; // 0-10
+  vocalType?: 'instrumental' | 'minimal-vocals' | 'vocal-focused';
   visualElements: {
     colors?: string[];
     instruments: string[];
@@ -263,6 +267,8 @@ export function buildRefinedAnalysis(
     tempo_bpm: photoAnalysis.tempo_bpm,
     setting: photoAnalysis.setting || photoAnalysis.visualElements?.setting,
     time_of_day: photoAnalysis.time_of_day || photoAnalysis.visualElements?.timeOfDay,
+    styleLevel: userRefinements.styleLevel ?? 5,
+    vocalType: userRefinements.vocalType ?? 'instrumental',
     visualElements: {
       colors: photoAnalysis.visualElements?.colors,
       instruments: finalInstruments,

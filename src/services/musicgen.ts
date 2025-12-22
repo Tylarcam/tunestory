@@ -26,7 +26,9 @@ export function buildMusicGenPrompt(analysis: MusicGenPrompt): string {
     energy,
     genres,
     tempo_bpm,
-    visualElements
+    visualElements,
+    styleLevel = 5,
+    vocalType = 'instrumental'
   } = analysis
   
   // Get primary genre
@@ -41,15 +43,70 @@ export function buildMusicGenPrompt(analysis: MusicGenPrompt): string {
   // Map energy to dynamics
   const energyDescriptor = getEnergyDescriptor(energy)
   
+  // Get style descriptor (era + production quality)
+  const styleDesc = getStyleDescriptor(styleLevel)
+  
+  // Get vocal descriptor
+  const vocalDesc = getVocalDescriptor(vocalType)
+  
   // Get instruments - use buildInstrumentPrompt if we have instrument IDs, otherwise use genre defaults
   const instruments = visualElements.instruments?.length 
     ? buildInstrumentPrompt(visualElements.instruments)
     : getDefaultInstruments(genre)
   
-  // Build concise prompt (MusicGen works best with 10-25 words)
-  const prompt = `${genre} ${moodDescriptor} ${tempoDescriptor}, ${instruments}, ${energyDescriptor}, high quality production`
+  // Build enhanced prompt following best practices
+  const promptParts = [
+    styleDesc.era ? `${styleDesc.era} ${genre}` : genre,
+    moodDescriptor,
+    tempoDescriptor,
+    `with ${instruments}`,
+    styleDesc.production,
+    vocalDesc,
+    energyDescriptor,
+    'high quality production'
+  ].filter(Boolean)
+  
+  const prompt = promptParts.join(', ')
   
   return prompt
+}
+
+// Style Level (0-10) → Era and Production descriptors
+function getStyleDescriptor(styleLevel: number): { era: string; production: string } {
+  if (styleLevel <= 3) {
+    const eras = ['1980s', '1990s', 'vintage']
+    const era = eras[Math.floor(styleLevel / 2)] || '1980s'
+    return {
+      era: `${era} lo-fi`,
+      production: 'raw production with vinyl crackle and warm analog character'
+    }
+  } else if (styleLevel <= 6) {
+    return {
+      era: '',
+      production: 'polished studio recording with clean mix'
+    }
+  } else {
+    const eras = ['modern', '2020s', 'contemporary']
+    const era = eras[Math.min(Math.floor((styleLevel - 7) / 1.5), 2)] || '2020s'
+    return {
+      era: `${era} cinematic`,
+      production: 'pristine clarity with professional mastering'
+    }
+  }
+}
+
+// Vocal Type → Descriptor
+function getVocalDescriptor(vocalType: 'instrumental' | 'minimal-vocals' | 'vocal-focused'): string {
+  switch (vocalType) {
+    case 'instrumental':
+      return 'instrumental, no vocals'
+    case 'minimal-vocals':
+      return 'subtle vocal textures and wordless vocals'
+    case 'vocal-focused':
+      return 'prominent vocals with lead vocal melody'
+    default:
+      return 'instrumental'
+  }
 }
 
 // Helper functions for prompt building

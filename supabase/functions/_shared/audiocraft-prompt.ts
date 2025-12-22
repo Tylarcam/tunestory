@@ -6,6 +6,8 @@ interface VisualAnalysis {
   description?: string;
   setting?: string;
   time_of_day?: string;
+  styleLevel?: number; // 0-10
+  vocalType?: 'instrumental' | 'minimal-vocals' | 'vocal-focused';
   visualElements?: {
     colors?: string[];
     instruments?: string[];
@@ -21,7 +23,9 @@ export function buildMusicGenPrompt(analysis: VisualAnalysis): string {
     energy,
     genres,
     tempo_bpm,
-    visualElements
+    visualElements,
+    styleLevel = 5,
+    vocalType = 'instrumental'
   } = analysis;
   
   // AudioCraft MusicGen prompt engineering best practices:
@@ -30,6 +34,7 @@ export function buildMusicGenPrompt(analysis: VisualAnalysis): string {
   // 3. Use concrete terms, not abstract concepts
   // 4. Specify quality ("high quality", "professional")
   // 5. AudioCraft understands musical terminology well
+  // Enhanced: Include era, production style, and vocal type
   
   const genre = genres[0] || 'instrumental';
   const moodDesc = getMoodDescriptor(mood);
@@ -42,14 +47,31 @@ export function buildMusicGenPrompt(analysis: VisualAnalysis): string {
   const tempoDesc = tempo_bpm ? getTempoDescriptor(tempo_bpm) : getTempoFromEnergy(energyNum);
   const energyDesc = getEnergyDescriptor(energyNum);
   
+  // Get style descriptor (era + production quality)
+  const styleDesc = getStyleDescriptor(styleLevel);
+  
+  // Get vocal descriptor
+  const vocalDesc = getVocalDescriptor(vocalType);
+  
   // Get instruments from visual analysis or defaults
   const instruments = visualElements?.instruments?.length 
     ? visualElements.instruments.slice(0, 3).join(', ')
     : getDefaultInstruments(genre);
   
-  // Build concise, musical prompt
-  // Format: [genre] [mood] [tempo], [instruments], [energy], [quality]
-  const prompt = `${genre} ${moodDesc} ${tempoDesc}, ${instruments}, ${energyDesc}, high quality production`;
+  // Build enhanced prompt following best practices
+  // Format: [Era/genre] [mood/context] with [instrumentation/arrangement], [production style], [vocal type], [energy], [quality]
+  const promptParts = [
+    styleDesc.era ? `${styleDesc.era} ${genre}` : genre,
+    moodDesc,
+    tempoDesc,
+    `with ${instruments}`,
+    styleDesc.production,
+    vocalDesc,
+    energyDesc,
+    'high quality production'
+  ].filter(Boolean);
+  
+  const prompt = promptParts.join(', ');
   
   return prompt;
 }
@@ -138,11 +160,54 @@ function getDefaultInstruments(genre: string): string {
   return instruments[lowerGenre] || 'mixed instrumentation';
 }
 
+// Style Level (0-10) → Era and Production descriptors
+function getStyleDescriptor(styleLevel: number): { era: string; production: string } {
+  if (styleLevel <= 3) {
+    // Lo-fi, raw, vintage
+    const eras = ['1980s', '1990s', 'vintage'];
+    const era = eras[Math.floor(styleLevel / 2)] || '1980s';
+    return {
+      era: `${era} lo-fi`,
+      production: 'raw production with vinyl crackle and warm analog character'
+    };
+  } else if (styleLevel <= 6) {
+    // Balanced, polished studio
+    return {
+      era: '',
+      production: 'polished studio recording with clean mix'
+    };
+  } else {
+    // High-end, cinematic, modern
+    const eras = ['modern', '2020s', 'contemporary'];
+    const era = eras[Math.min(Math.floor((styleLevel - 7) / 1.5), 2)] || '2020s';
+    return {
+      era: `${era} cinematic`,
+      production: 'pristine clarity with professional mastering'
+    };
+  }
+}
+
+// Vocal Type → Descriptor
+function getVocalDescriptor(vocalType: 'instrumental' | 'minimal-vocals' | 'vocal-focused'): string {
+  switch (vocalType) {
+    case 'instrumental':
+      return 'instrumental, no vocals';
+    case 'minimal-vocals':
+      return 'subtle vocal textures and wordless vocals';
+    case 'vocal-focused':
+      return 'prominent vocals with lead vocal melody';
+    default:
+      return 'instrumental';
+  }
+}
+
 // Export for testing
 export const testPromptBuilder = {
   getMoodDescriptor,
   getTempoDescriptor,
   getEnergyDescriptor,
-  getDefaultInstruments
+  getDefaultInstruments,
+  getStyleDescriptor,
+  getVocalDescriptor
 };
 

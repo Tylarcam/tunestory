@@ -2,14 +2,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Eye, RotateCcw, Edit2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Eye, RotateCcw, Edit2, Sparkles, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { augmentPrompt } from "@/services/promptAugmenter";
 
 interface PromptEditorProps {
   prompt: string;
   onPromptChange: (prompt: string) => void;
   onReset?: () => void;
   disabled?: boolean;
+  context?: {
+    genre?: string;
+    mood?: string;
+    energy?: string;
+    instruments?: string[];
+  };
 }
 
 export function PromptEditor({
@@ -17,10 +25,14 @@ export function PromptEditor({
   onPromptChange,
   onReset,
   disabled = false,
+  context,
 }: PromptEditorProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState(prompt);
   const [isEdited, setIsEdited] = useState(false);
+  const [showRewrite, setShowRewrite] = useState(false);
+  const [rewriteDirection, setRewriteDirection] = useState("");
+  const [isAugmenting, setIsAugmenting] = useState(false);
 
   // Update local state when prompt prop changes (from auto-generation)
   useEffect(() => {
@@ -40,6 +52,34 @@ export function PromptEditor({
     setIsEdited(false);
     if (onReset) {
       onReset();
+    }
+  };
+
+  const handleRewrite = async () => {
+    if (!rewriteDirection.trim()) return;
+
+    setIsAugmenting(true);
+    try {
+      const result = await augmentPrompt({
+        currentPrompt: editedPrompt,
+        direction: rewriteDirection,
+        context,
+      });
+
+      if (result.success && result.augmentedPrompt) {
+        setEditedPrompt(result.augmentedPrompt);
+        setIsEdited(true);
+        onPromptChange(result.augmentedPrompt);
+        setRewriteDirection("");
+        setShowRewrite(false);
+      } else {
+        throw new Error(result.error || "Failed to augment prompt");
+      }
+    } catch (error) {
+      console.error("Rewrite error:", error);
+      // You might want to show a toast here
+    } finally {
+      setIsAugmenting(false);
     }
   };
 
@@ -92,6 +132,16 @@ export function PromptEditor({
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => setShowRewrite(!showRewrite)}
+              disabled={disabled || isAugmenting}
+              className="gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              AI Rewrite
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setIsExpanded(!isExpanded)}
             >
               {isExpanded ? "Collapse" : "Expand"}
@@ -100,6 +150,46 @@ export function PromptEditor({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {showRewrite && (
+          <div className="space-y-2 p-3 bg-muted/50 rounded-lg border">
+            <div className="flex items-center gap-2">
+              <Input
+                value={rewriteDirection}
+                onChange={(e) => setRewriteDirection(e.target.value)}
+                placeholder="e.g., make it more cinematic, add more energy, make it lo-fi..."
+                disabled={disabled || isAugmenting}
+                className="flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleRewrite();
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                onClick={handleRewrite}
+                disabled={disabled || isAugmenting || !rewriteDirection.trim()}
+                className="gap-2"
+              >
+                {isAugmenting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Rewriting...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Rewrite
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Describe how you want the prompt changed (e.g., "more cinematic", "add vintage feel")
+            </p>
+          </div>
+        )}
         <div className="space-y-2">
           <Textarea
             value={editedPrompt}

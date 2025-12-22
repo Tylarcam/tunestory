@@ -29,6 +29,8 @@ const requestSchema = z.object({
   model: z.enum(['small', 'medium', 'large', 'melody']).optional().default('small'),
   duration: z.number().min(10).max(60).optional().default(30),
   customPrompt: z.string().max(500).optional(), // Custom prompt override
+  styleLevel: z.number().min(0).max(10).optional().default(5), // 0-10 production style/era
+  vocalType: z.enum(['instrumental', 'minimal-vocals', 'vocal-focused']).optional().default('instrumental'),
 });
 
 serve(async (req) => {
@@ -72,7 +74,9 @@ serve(async (req) => {
       visualElements,
       model,
       duration,
-      customPrompt
+      customPrompt,
+      styleLevel,
+      vocalType
     } = parseResult.data;
   
     // Use custom prompt if provided, otherwise build from analysis
@@ -84,7 +88,9 @@ serve(async (req) => {
       description,
       setting,
       time_of_day,
-      visualElements
+      visualElements,
+      styleLevel,
+      vocalType
     });
   
     console.log('🎵 AudioCraft prompt:', musicPrompt);
