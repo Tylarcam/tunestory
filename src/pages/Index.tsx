@@ -12,6 +12,7 @@ import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { PlaylistSelector } from "@/components/PlaylistSelector";
 import { MusicSourceSelector } from "@/components/MusicSourceSelector";
 import { MusicGenOptions } from "@/components/MusicGenOptions";
+import { InstrumentPresetPicker } from "@/components/InstrumentPresetPicker";
 import { PhotoAnalysisDisplay } from "@/components/PhotoAnalysisDisplay";
 import { MusicRefinementControls } from "@/components/MusicRefinementControls";
 import { PromptEditor } from "@/components/PromptEditor";
@@ -937,6 +938,13 @@ const Index = () => {
                       />
                     </div>
                   </div>
+                  
+                  {/* Instrument Style Selection */}
+                  <InstrumentPresetPicker
+                    selectedInstruments={selectedInstruments}
+                    onInstrumentsChange={setSelectedInstruments}
+                    disabled={isGenerating}
+                  />
                   
                   {/* Music Generation Options */}
                   <MusicGenOptions
