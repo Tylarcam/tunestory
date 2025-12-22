@@ -73,7 +73,8 @@ Analyze the image for:
 1. Emotional mood (joyful, melancholic, energetic, calm, etc.)
 2. Energy level (Low, Medium, High)
 3. Visual elements: colors (warm/cool, bright/dark), setting (beach, city, nature, etc.), time of day
-4. Overall atmosphere and vibe
+4. Musical instruments visible or suggested in the image (piano, guitar, drums, synth, strings, bass, saxophone, etc.) - identify 1-4 instruments that match the vibe
+5. Overall atmosphere and vibe
 
 IMPORTANT - Generate Spotify search terms that will work well with Spotify's search API. Good search terms:
 - Combine mood + genre: "chill indie pop", "energetic electronic dance"
@@ -93,7 +94,8 @@ Always respond with a JSON object in this exact format:
     "colors": ["color1", "color2"],
     "setting": "setting description",
     "timeOfDay": "morning/afternoon/evening/night/unknown",
-    "atmosphere": "atmospheric description"
+    "atmosphere": "atmospheric description",
+    "instruments": ["instrument1", "instrument2", "instrument3"]
   }
 }
 
@@ -176,7 +178,8 @@ Generate 4 searchTerms minimum. Each should be a complete Spotify-searchable que
           colors: [],
           setting: "unknown",
           timeOfDay: "unknown",
-          atmosphere: "neutral"
+          atmosphere: "neutral",
+          instruments: []
         }
       };
     }
