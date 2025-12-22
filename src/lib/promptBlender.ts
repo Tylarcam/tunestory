@@ -175,8 +175,8 @@ function getFinalBlendRatio(
     return userBlendRatio;
   }
 
-  // Priority 2: User saved preference
-  if (preferences?.defaultBlendRatio !== null) {
+  // Priority 2: User saved preference (check both null and undefined)
+  if (preferences?.defaultBlendRatio != null) {
     return preferences.defaultBlendRatio;
   }
 
