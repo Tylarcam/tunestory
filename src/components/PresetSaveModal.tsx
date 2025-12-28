@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { useState, useEffect } from "react";
+=======
+import { useState } from "react";
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
 import {
   Dialog,
   DialogContent,
@@ -10,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+<<<<<<< HEAD
 import { validatePresetName } from "@/lib/presetManager";
 import type { Preset } from "@/lib/localStorage";
 
@@ -24,6 +29,23 @@ interface PresetSaveModalProps {
     blendRatio: number;
     vibeTemplate: string;
   };
+=======
+import type { Preset } from "@/lib/localStorage";
+
+interface PresetState {
+  genre: string;
+  instruments: string[];
+  energy: string;
+  blendRatio: number;
+  vibeTemplate: string;
+}
+
+interface PresetSaveModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (preset: Preset) => void;
+  currentState: PresetState;
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
   existingPresets: Preset[];
 }
 
@@ -35,6 +57,7 @@ export function PresetSaveModal({
   existingPresets,
 }: PresetSaveModalProps) {
   const [name, setName] = useState("");
+<<<<<<< HEAD
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,6 +75,41 @@ export function PresetSaveModal({
     }
 
     onSave(name);
+=======
+  const [error, setError] = useState("");
+
+  const handleSave = () => {
+    if (!name.trim()) {
+      setError("Please enter a name for this preset");
+      return;
+    }
+
+    // Check for duplicate names
+    if (existingPresets.some((p) => p.name.toLowerCase() === name.toLowerCase().trim())) {
+      setError("A preset with this name already exists");
+      return;
+    }
+
+    const preset: Preset = {
+      id: `preset-${Date.now()}`,
+      name: name.trim(),
+      genre: currentState.genre,
+      instruments: currentState.instruments,
+      energy: currentState.energy,
+      blendRatio: currentState.blendRatio,
+      vibeTemplate: currentState.vibeTemplate,
+    };
+
+    onSave(preset);
+    setName("");
+    setError("");
+    onOpenChange(false);
+  };
+
+  const handleCancel = () => {
+    setName("");
+    setError("");
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
     onOpenChange(false);
   };
 
@@ -59,12 +117,20 @@ export function PresetSaveModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
+<<<<<<< HEAD
           <DialogTitle>Save Custom Preset</DialogTitle>
           <DialogDescription>
             Give your preset a name to save your current settings for later use.
           </DialogDescription>
         </DialogHeader>
 
+=======
+          <DialogTitle>Save Preset</DialogTitle>
+          <DialogDescription>
+            Save your current music settings as a preset for quick access later.
+          </DialogDescription>
+        </DialogHeader>
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="preset-name">Preset Name</Label>
@@ -73,6 +139,7 @@ export function PresetSaveModal({
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
+<<<<<<< HEAD
                 setError(null);
               }}
               placeholder="e.g., Study Vibes, Morning Coffee"
@@ -102,6 +169,27 @@ export function PresetSaveModal({
           <Button onClick={handleSave} disabled={!name.trim()}>
             Save Preset
           </Button>
+=======
+                setError("");
+              }}
+              placeholder="e.g., My Chill Vibe"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSave();
+                }
+              }}
+            />
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleCancel}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave}>Save Preset</Button>
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
         </DialogFooter>
       </DialogContent>
     </Dialog>

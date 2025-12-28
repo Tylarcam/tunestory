@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { LoadingState } from "@/components/LoadingState";
 import { MoodDisplay, type MoodData } from "@/components/MoodDisplay";
@@ -11,12 +11,33 @@ import { GeneratedMusicCard } from "@/components/GeneratedMusicCard";
 import { SpotifyAuth } from "@/components/SpotifyAuth";
 import { PlaylistSelector } from "@/components/PlaylistSelector";
 import { MusicSourceSelector } from "@/components/MusicSourceSelector";
+import { MusicGenOptions } from "@/components/MusicGenOptions";
+import { InstrumentPresetPicker } from "@/components/InstrumentPresetPicker";
+import { PhotoAnalysisDisplay } from "@/components/PhotoAnalysisDisplay";
+import { MusicRefinementControls } from "@/components/MusicRefinementControls";
+import { PromptEditor } from "@/components/PromptEditor";
+import { VariationComparison } from "@/components/VariationComparison";
+import { VariationStrategySelector } from "@/components/VariationStrategySelector";
 import { Music2, Sparkles, Info } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
+import type { MusicGenModel } from "@/types/musicgen";
+import {
+  getUserPreferences,
+  setUserPreferences as saveUserPreferences,
+  getSavedPresets,
+  addPreset,
+  deletePreset,
+  type UserPreferences,
+  type Preset,
+} from "@/lib/localStorage";
+import { buildRefinedAnalysis } from "@/lib/promptBlender";
+import { buildMusicGenPrompt } from "@/services/musicgen";
+import { mapGeminiGenreToOption } from "@/lib/genreOptions";
+import { mapGeminiInstruments, findMatchingPreset } from "@/lib/instrumentOptions";
 
-type AppState = "upload" | "source-select" | "analyzing" | "gathering" | "results";
+type AppState = "upload" | "source-select" | "analyzing" | "refining" | "gathering" | "results";
 type MusicSourceType = "random" | "playlist";
 
 interface GeneratedTrack {
@@ -43,6 +64,9 @@ const Index = () => {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [generatedTrack, setGeneratedTrack] = useState<GeneratedTrack | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  // Music generation options
+  const [musicGenModel, setMusicGenModel] = useState<MusicGenModel>('small');
+  const [musicGenDuration, setMusicGenDuration] = useState<number>(30);
   const [lastAnalysis, setLastAnalysis] = useState<{
     mood: string;
     energy: number | string;
@@ -59,6 +83,31 @@ const Index = () => {
     };
   } | null>(null); // Store full analysis for regeneration
   
+  // User preferences and presets (from localStorage)
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  const [savedPresets, setSavedPresets] = useState<Preset[]>([]);
+
+  // Refinement state
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [selectedInstruments, setSelectedInstruments] = useState<string[]>([]);
+  const [energyLevel, setEnergyLevel] = useState<string | null>(null);
+  const [blendRatio, setBlendRatio] = useState<number>(30);
+  const [userVibeText, setUserVibeText] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const [currentPresetId, setCurrentPresetId] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  // Creator Mode enhanced parameters
+  const [styleLevel, setStyleLevel] = useState<number>(5); // 0-10, default 5
+  const [vocalType, setVocalType] = useState<'instrumental' | 'minimal-vocals' | 'vocal-focused'>('instrumental');
+  const [variationStrategy, setVariationStrategy] = useState<'seed' | 'params' | 'both'>('both');
+  const [generatedVariations, setGeneratedVariations] = useState<GeneratedTrack[]>([]);
+  const [showVariationStrategy, setShowVariationStrategy] = useState<boolean>(false);
+  const [isGeneratingVariations, setIsGeneratingVariations] = useState<boolean>(false);
+  // Prompt editing state
+  const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
+  const [isPromptEdited, setIsPromptEdited] = useState<boolean>(false);
+  const [isAugmentingPrompt, setIsAugmentingPrompt] = useState<boolean>(false);
+  
   // Music mode state
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<string | "liked">("liked");
@@ -68,6 +117,36 @@ const Index = () => {
   
   // Track which source was used for regeneration
   const lastSourceRef = useRef<{ type: MusicSourceType; token?: string; playlist?: string | "liked" }>({ type: "random" });
+
+  // Load preferences and presets on mount
+  useEffect(() => {
+    const prefs = getUserPreferences();
+    const presets = getSavedPresets();
+    setUserPreferences(prefs);
+    setSavedPresets(presets);
+    if (prefs?.alwaysShowAdvanced) {
+      setShowAdvanced(true);
+    }
+  }, []);
+
+  // Apply preferences after analysis
+  useEffect(() => {
+    if (lastAnalysis && userPreferences) {
+      // Apply defaults if user hasn't manually set values
+      if (!selectedGenre && userPreferences.defaultGenre) {
+        setSelectedGenre(userPreferences.defaultGenre);
+      }
+      if (selectedInstruments.length === 0 && userPreferences.defaultInstruments) {
+        setSelectedInstruments(userPreferences.defaultInstruments);
+      }
+      if (!energyLevel && userPreferences.defaultEnergy) {
+        setEnergyLevel(userPreferences.defaultEnergy);
+      }
+      if (blendRatio === 30 && userPreferences.defaultBlendRatio !== null) {
+        setBlendRatio(userPreferences.defaultBlendRatio);
+      }
+    }
+  }, [lastAnalysis, userPreferences, blendRatio, energyLevel, selectedGenre, selectedInstruments.length]);
 
   // Update preview URL when selected image index changes
   useEffect(() => {
@@ -89,6 +168,53 @@ const Index = () => {
       setImagePreviewUrl(null);
     }
   }, [selectedImages, selectedImageIndex]);
+
+  // Compute final prompt from refinements
+  const finalPrompt = useMemo(() => {
+    if (!lastAnalysis) return "";
+    
+    const refined = buildRefinedAnalysis(
+      lastAnalysis,
+      {
+        selectedGenre,
+        selectedInstruments,
+        energyLevel,
+        blendRatio,
+        userVibeText,
+        styleLevel,
+        vocalType,
+      },
+      userPreferences
+    );
+
+    // Convert energy string to number for buildMusicGenPrompt
+    const energyNum = typeof refined.energy === "string"
+      ? refined.energy === "High" ? 8 : refined.energy === "Medium" ? 5 : 3
+      : refined.energy;
+
+    return buildMusicGenPrompt({
+      mood: refined.mood,
+      energy: energyNum,
+      genres: refined.genres,
+      tempo_bpm: refined.tempo_bpm || 120,
+      description: refined.description,
+      setting: refined.setting || "",
+      time_of_day: refined.time_of_day || "",
+      styleLevel: refined.styleLevel,
+      vocalType: refined.vocalType,
+      visualElements: {
+        colors: refined.visualElements.colors || [],
+        instruments: refined.visualElements.instruments || [],
+      },
+    });
+  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, styleLevel, vocalType, userPreferences]);
+
+  // Reset edited prompt when refinement controls change (unless user explicitly edited)
+  useEffect(() => {
+    if (!isPromptEdited && lastAnalysis) {
+      setEditedPrompt(null);
+    }
+  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, isPromptEdited]);
 
   // Called when images are selected
   const handleImagesSelect = useCallback((files: File[]) => {
@@ -220,13 +346,16 @@ const Index = () => {
     description?: string;
     setting?: string;
     time_of_day?: string;
+    styleLevel?: number;
+    vocalType?: 'instrumental' | 'minimal-vocals' | 'vocal-focused';
     visualElements?: {
       colors?: string[];
       instruments?: string[];
       setting?: string;
       timeOfDay?: string;
     };
-  }) => {
+  }, customPrompt?: string) => {
+    // Use custom prompt if provided, otherwise backend will build from analysis
     setIsGenerating(true);
     setState("gathering");
     
@@ -254,7 +383,15 @@ const Index = () => {
             description: analysis.description || '',
             setting: analysis.visualElements?.setting || analysis.setting || '',
             time_of_day: analysis.visualElements?.timeOfDay || analysis.time_of_day || '',
-            visualElements: analysis.visualElements || {}
+            visualElements: analysis.visualElements || {},
+            // MusicGen options
+            model: musicGenModel,
+            duration: musicGenDuration,
+            // Creator Mode parameters
+            styleLevel: analysis.styleLevel ?? styleLevel,
+            vocalType: analysis.vocalType ?? vocalType,
+            // Custom prompt override (if user edited it)
+            customPrompt: customPrompt || undefined
           }),
         }
       );
@@ -301,10 +438,13 @@ const Index = () => {
       }
 
       // Supabase function returns audioUrl directly (data URL)
+      // Use custom prompt if provided, otherwise use the one from response
+      const finalPromptUsed = customPrompt || data.prompt || '';
+      
       const trackData: GeneratedTrack = {
         success: true,
         audioUrl: data.audioUrl,
-        prompt: data.prompt,
+        prompt: finalPromptUsed,
         metadata: {
           model: data.metadata?.model || 'AudioCraft MusicGen Large',
           duration: data.metadata?.duration || 30,
@@ -332,7 +472,164 @@ const Index = () => {
     } finally {
       setIsGenerating(false);
     }
-  }, []);
+  }, [musicGenModel, musicGenDuration, styleLevel, vocalType]);
+
+  // Generate multiple variations
+  const handleGenerateVariations = useCallback(async () => {
+    if (!lastAnalysis) return;
+    
+    setIsGeneratingVariations(true);
+    setState("gathering");
+    setGeneratedVariations([]);
+    
+    try {
+      const refined = buildRefinedAnalysis(
+        lastAnalysis,
+        {
+          selectedGenre,
+          selectedInstruments,
+          energyLevel,
+          blendRatio,
+          userVibeText,
+          styleLevel,
+          vocalType,
+        },
+        userPreferences
+      );
+
+      // Convert energy string to number
+      const energyNum = typeof refined.energy === "string"
+        ? refined.energy === "High" ? 8 : refined.energy === "Medium" ? 5 : 3
+        : refined.energy;
+
+      // Generate variations based on strategy
+      const variations: GeneratedTrack[] = [];
+      const basePrompt = editedPrompt || finalPrompt;
+
+      if (variationStrategy === 'seed' || variationStrategy === 'both') {
+        // Generate 2 variations with different seeds (same prompt)
+        for (let i = 0; i < 2; i++) {
+          const response = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+              },
+              body: JSON.stringify({
+                mood: refined.mood,
+                energy: typeof refined.energy === 'string' ? refined.energy : (refined.energy >= 7 ? 'High' : refined.energy >= 4 ? 'Medium' : 'Low'),
+                genres: refined.genres,
+                tempo_bpm: refined.tempo_bpm || 120,
+                description: refined.description || '',
+                setting: refined.setting || '',
+                time_of_day: refined.time_of_day || '',
+                visualElements: refined.visualElements || {},
+                model: musicGenModel,
+                duration: musicGenDuration,
+                styleLevel: refined.styleLevel,
+                vocalType: refined.vocalType,
+                customPrompt: basePrompt,
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              variations.push({
+                success: true,
+                audioUrl: data.audioUrl,
+                prompt: data.prompt || basePrompt,
+                metadata: {
+                  model: data.metadata?.model || 'AudioCraft MusicGen',
+                  duration: data.metadata?.duration || 30,
+                  status: 'generated',
+                  framework: data.metadata?.framework || 'AudioCraft'
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (variationStrategy === 'params' || variationStrategy === 'both') {
+        // Generate variations with different style/energy combinations
+        const paramVariations = [
+          { style: Math.max(0, styleLevel - 2), energy: energyLevel || 'Medium' },
+          { style: Math.min(10, styleLevel + 2), energy: energyLevel || 'Medium' },
+          { style: styleLevel, energy: energyLevel === 'High' ? 'Medium' : energyLevel === 'Low' ? 'Medium' : 'High' },
+        ];
+
+        for (const params of paramVariations) {
+          const response = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-music`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+              },
+              body: JSON.stringify({
+                mood: refined.mood,
+                energy: params.energy,
+                genres: refined.genres,
+                tempo_bpm: refined.tempo_bpm || 120,
+                description: refined.description || '',
+                setting: refined.setting || '',
+                time_of_day: refined.time_of_day || '',
+                visualElements: refined.visualElements || {},
+                model: musicGenModel,
+                duration: musicGenDuration,
+                styleLevel: params.style,
+                vocalType: refined.vocalType,
+                customPrompt: undefined, // Let backend build prompt with new params
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              variations.push({
+                success: true,
+                audioUrl: data.audioUrl,
+                prompt: data.prompt || basePrompt,
+                metadata: {
+                  model: data.metadata?.model || 'AudioCraft MusicGen',
+                  duration: data.metadata?.duration || 30,
+                  status: 'generated',
+                  framework: data.metadata?.framework || 'AudioCraft'
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (variations.length > 0) {
+        setGeneratedVariations(variations);
+        setState("results");
+        toast({
+          title: "Variations Generated!",
+          description: `${variations.length} variations ready to compare.`,
+        });
+      } else {
+        throw new Error("Failed to generate variations");
+      }
+    } catch (error) {
+      console.error('Variation generation error:', error);
+      toast({
+        title: "Generation Failed",
+        description: error instanceof Error ? error.message : "Failed to generate variations. Please try again.",
+        variant: "destructive",
+      });
+      setState("refining");
+    } finally {
+      setIsGeneratingVariations(false);
+    }
+  }, [lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, styleLevel, vocalType, userPreferences, variationStrategy, editedPrompt, finalPrompt, musicGenModel, musicGenDuration]);
 
   // Analyze image and filter from user's playlist
   const analyzeImageAndFilterPlaylist = useCallback(async (accessToken: string, playlistId: string | "liked") => {
@@ -379,7 +676,57 @@ const Index = () => {
 
       // Route to either Discover or Generate based on musicMode
       if (musicMode === "generate") {
-        await handleGenerateMusic(analysis);
+        // Map Gemini instruments to our system
+        const geminiInstruments = analysis.visualElements?.instruments || [];
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/cc65279a-8083-4159-bde6-031c6d1349f1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Index.tsx:490',message:'Before Gemini mapping',data:{geminiInstruments},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        const mappedInstruments = mapGeminiInstruments(geminiInstruments);
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/cc65279a-8083-4159-bde6-031c6d1349f1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Index.tsx:492',message:'After Gemini mapping',data:{mappedInstruments},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        
+        // Reset refinement state and apply preferences
+        setSelectedGenre(null);
+        setSelectedInstruments([]);
+        setEnergyLevel(null);
+        setBlendRatio(userPreferences?.defaultBlendRatio ?? 30);
+        setUserVibeText("");
+        setCurrentPresetId(null);
+        setHasUnsavedChanges(false);
+        
+        // Apply user preferences if they exist, otherwise use mapped Gemini instruments
+        if (userPreferences) {
+          if (userPreferences.defaultGenre) {
+            setSelectedGenre(userPreferences.defaultGenre);
+          }
+          if (userPreferences.defaultInstruments) {
+            setSelectedInstruments(userPreferences.defaultInstruments);
+          } else if (mappedInstruments.length > 0) {
+            // Check for preset match
+            const matchingPreset = findMatchingPreset(mappedInstruments);
+            setSelectedInstruments(mappedInstruments);
+            if (matchingPreset) {
+              setCurrentPresetId(matchingPreset.id);
+            }
+          }
+          if (userPreferences.defaultEnergy) {
+            setEnergyLevel(userPreferences.defaultEnergy);
+          }
+        } else if (mappedInstruments.length > 0) {
+          // No preferences, use mapped Gemini instruments
+          const matchingPreset = findMatchingPreset(mappedInstruments);
+          setSelectedInstruments(mappedInstruments);
+          if (matchingPreset) {
+            setCurrentPresetId(matchingPreset.id);
+          }
+        }
+        
+        // Reset prompt editing state when starting new refinement
+        setEditedPrompt(null);
+        setIsPromptEdited(false);
+        // Show refinement UI instead of generating directly
+        setState("refining");
       } else {
         setState("gathering");
 
@@ -425,7 +772,7 @@ const Index = () => {
       });
       setState("upload");
     }
-  }, [selectedImages, selectedImageIndex, musicMode, handleGenerateMusic]);
+  }, [selectedImages, selectedImageIndex, musicMode, userPreferences]);
 
   const handleMusicAnalysis = useCallback(async () => {
     if (!spotifyToken) {
@@ -506,8 +853,120 @@ const Index = () => {
     }
   }, [spotifyToken, selectedPlaylist]);
 
+  // Reset to AI suggestions
+  const handleResetToAI = useCallback(() => {
+    if (!lastAnalysis) return;
+    
+    // Map Gemini instruments
+    const geminiInstruments = lastAnalysis.visualElements?.instruments || [];
+    const mappedInstruments = mapGeminiInstruments(geminiInstruments);
+    
+    setSelectedGenre(null);
+    setSelectedInstruments(mappedInstruments.length > 0 ? mappedInstruments : []);
+    setEnergyLevel(null);
+    setBlendRatio(30);
+    setUserVibeText("");
+    setStyleLevel(5); // Reset to default
+    setVocalType('instrumental'); // Reset to default
+    
+    // Check for preset match
+    if (mappedInstruments.length > 0) {
+      const matchingPreset = findMatchingPreset(mappedInstruments);
+      setCurrentPresetId(matchingPreset?.id || null);
+    } else {
+      setCurrentPresetId(null);
+    }
+    
+    setHasUnsavedChanges(false);
+    
+    toast({
+      title: "Reset to photo analysis",
+      description: "All settings restored to AI suggestions",
+    });
+  }, [lastAnalysis]);
+
+  // Save preset
+  const handleSavePreset = useCallback((preset: Preset) => {
+    const result = addPreset(preset);
+    if (result.success) {
+      setSavedPresets(result.presets);
+      setCurrentPresetId(preset.id);
+      setHasUnsavedChanges(false);
+      toast({
+        title: "Preset saved",
+        description: `"${preset.name}" has been saved`,
+      });
+    } else {
+      toast({
+        title: "Failed to save preset",
+        description: "Could not save to localStorage",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
+  // Load preset
+  const handleLoadPreset = useCallback((presetId: string) => {
+    const preset = savedPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    setSelectedGenre(preset.genre);
+    setSelectedInstruments([...preset.instruments]);
+    setEnergyLevel(preset.energy);
+    setBlendRatio(preset.blendRatio);
+    setUserVibeText(preset.vibeTemplate);
+    setCurrentPresetId(presetId);
+    setHasUnsavedChanges(false);
+
+    toast({
+      title: "Preset loaded",
+      description: `"${preset.name}" has been loaded`,
+    });
+  }, [savedPresets]);
+
+  // Delete preset
+  const handleDeletePreset = useCallback((presetId: string) => {
+    const result = deletePreset(presetId);
+    if (result.success) {
+      setSavedPresets(result.presets);
+      if (currentPresetId === presetId) {
+        setCurrentPresetId(null);
+        handleResetToAI();
+      }
+      toast({
+        title: "Preset deleted",
+        description: "Preset has been removed",
+      });
+    } else {
+      toast({
+        title: "Failed to delete preset",
+        description: "Could not delete from localStorage",
+        variant: "destructive",
+      });
+    }
+  }, [currentPresetId, handleResetToAI]);
+
+  // Save as default
+  const handleSaveAsDefault = useCallback((preferences: UserPreferences) => {
+    const success = saveUserPreferences(preferences);
+    if (success) {
+      setUserPreferences(preferences);
+      toast({
+        title: "Default preferences saved",
+        description: "Future photos will use these settings",
+      });
+    } else {
+      toast({
+        title: "Failed to save defaults",
+        description: "Could not save to localStorage",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
   const handleClear = useCallback(() => {
     setGeneratedTrack(null);
+    setGeneratedVariations([]);
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     // Note: Preview URLs for gallery thumbnails are cleaned up by PhotoUpload component's useEffect
     setSelectedImages([]);
@@ -516,6 +975,19 @@ const Index = () => {
     setMoodData(null);
     setSongs([]);
     setPlayingId(null);
+    // Reset refinement state
+    setSelectedGenre(null);
+    setSelectedInstruments([]);
+    setEnergyLevel(null);
+    setBlendRatio(30);
+    setUserVibeText("");
+    setStyleLevel(5);
+    setVocalType('instrumental');
+    setCurrentPresetId(null);
+    setHasUnsavedChanges(false);
+    // Reset prompt editing state
+    setEditedPrompt(null);
+    setIsPromptEdited(false);
     setState("upload");
   }, [imagePreviewUrl]);
 
@@ -523,7 +995,23 @@ const Index = () => {
     setPlayingId(null);
     if (vibeMode === "photo") {
       if (musicMode === "generate" && lastAnalysis) {
-        await handleGenerateMusic(lastAnalysis);
+        // Use current refinements for regeneration
+        const refined = buildRefinedAnalysis(
+          lastAnalysis,
+          {
+            selectedGenre,
+            selectedInstruments,
+            energyLevel,
+            blendRatio,
+            userVibeText,
+            styleLevel,
+            vocalType,
+          },
+          userPreferences
+        );
+        // Use edited prompt if available, otherwise use auto-generated
+        const promptToUse = editedPrompt || finalPrompt;
+        await handleGenerateMusic(refined, promptToUse);
       } else {
         const { type, token, playlist } = lastSourceRef.current;
         if (type === "playlist" && token && playlist) {
@@ -535,7 +1023,7 @@ const Index = () => {
     } else if (vibeMode === "music") {
       handleMusicAnalysis();
     }
-  }, [vibeMode, musicMode, lastAnalysis, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis]);
+  }, [vibeMode, musicMode, lastAnalysis, selectedGenre, selectedInstruments, energyLevel, blendRatio, userVibeText, styleLevel, vocalType, userPreferences, handleGenerateMusic, analyzeImageAndGetRandom, analyzeImageAndFilterPlaylist, handleMusicAnalysis, editedPrompt, finalPrompt]);
 
   const handleModeChange = (mode: VibeMode) => {
     if (state === "results" || state === "source-select") {
@@ -623,14 +1111,33 @@ const Index = () => {
               )}
               
               {musicMode === "generate" && (
-                <div className="glass-card p-6 text-center space-y-4">
-                  <div className="aspect-square rounded-xl overflow-hidden mb-4">
-                    <img
-                      src={imagePreviewUrl}
-                      alt="Your photo"
-                      className="w-full h-full object-cover"
-                    />
+                <div className="space-y-4">
+                  <div className="glass-card p-6 text-center">
+                    <div className="aspect-square rounded-xl overflow-hidden mb-4">
+                      <img
+                        src={imagePreviewUrl}
+                        alt="Your photo"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                   </div>
+                  
+                  {/* Instrument Style Selection */}
+                  <InstrumentPresetPicker
+                    selectedInstruments={selectedInstruments}
+                    onInstrumentsChange={setSelectedInstruments}
+                    disabled={isGenerating}
+                  />
+                  
+                  {/* Music Generation Options */}
+                  <MusicGenOptions
+                    model={musicGenModel}
+                    duration={musicGenDuration}
+                    onModelChange={setMusicGenModel}
+                    onDurationChange={setMusicGenDuration}
+                    disabled={isGenerating}
+                  />
+                  
                   <Button
                     onClick={async () => {
                       if (selectedImages.length === 0 || selectedImageIndex === null) return;
@@ -671,7 +1178,58 @@ const Index = () => {
                           genres: analysis.genres,
                           description: analysis.description,
                         });
-                        await handleGenerateMusic(analysis);
+                        
+                        // Map Gemini instruments to our system
+                        const geminiInstruments = analysis.visualElements?.instruments || [];
+                        // #region agent log
+                        fetch('http://127.0.0.1:7244/ingest/cc65279a-8083-4159-bde6-031c6d1349f1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Index.tsx:973',message:'Before Gemini mapping (photo mode)',data:{geminiInstruments},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                        // #endregion
+                        const mappedInstruments = mapGeminiInstruments(geminiInstruments);
+                        // #region agent log
+                        fetch('http://127.0.0.1:7244/ingest/cc65279a-8083-4159-bde6-031c6d1349f1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Index.tsx:975',message:'After Gemini mapping (photo mode)',data:{mappedInstruments},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                        // #endregion
+                        
+                        // Reset refinement state and apply preferences
+                        setSelectedGenre(null);
+                        setSelectedInstruments([]);
+                        setEnergyLevel(null);
+                        setBlendRatio(userPreferences?.defaultBlendRatio ?? 30);
+                        setUserVibeText("");
+                        setCurrentPresetId(null);
+                        setHasUnsavedChanges(false);
+                        
+                        // Apply user preferences if they exist, otherwise use mapped Gemini instruments
+                        if (userPreferences) {
+                          if (userPreferences.defaultGenre) {
+                            setSelectedGenre(userPreferences.defaultGenre);
+                          }
+                          if (userPreferences.defaultInstruments) {
+                            setSelectedInstruments(userPreferences.defaultInstruments);
+                          } else if (mappedInstruments.length > 0) {
+                            // Check for preset match
+                            const matchingPreset = findMatchingPreset(mappedInstruments);
+                            setSelectedInstruments(mappedInstruments);
+                            if (matchingPreset) {
+                              setCurrentPresetId(matchingPreset.id);
+                            }
+                          }
+                          if (userPreferences.defaultEnergy) {
+                            setEnergyLevel(userPreferences.defaultEnergy);
+                          }
+                        } else if (mappedInstruments.length > 0) {
+                          // No preferences, use mapped Gemini instruments
+                          const matchingPreset = findMatchingPreset(mappedInstruments);
+                          setSelectedInstruments(mappedInstruments);
+                          if (matchingPreset) {
+                            setCurrentPresetId(matchingPreset.id);
+                          }
+                        }
+                        
+                        // Reset prompt editing state when starting new refinement
+                        setEditedPrompt(null);
+                        setIsPromptEdited(false);
+                        // Show refinement UI instead of generating directly
+                        setState("refining");
                       } catch (error) {
                         console.error("Error:", error);
                         toast({
@@ -725,6 +1283,115 @@ const Index = () => {
             </div>
           )}
 
+          {/* Refinement UI (Generate Mode Only) */}
+          {vibeMode === "photo" && musicMode === "generate" && state === "refining" && lastAnalysis && (
+            <div className="space-y-4">
+              <PhotoAnalysisDisplay
+                analysis={{
+                  mood: lastAnalysis.mood,
+                  energy: typeof lastAnalysis.energy === "string" ? lastAnalysis.energy : "Medium",
+                  genres: lastAnalysis.genres,
+                  description: lastAnalysis.description,
+                }}
+                onReset={handleResetToAI}
+              />
+
+              <MusicRefinementControls
+                analysis={{
+                  mood: lastAnalysis.mood,
+                  energy: lastAnalysis.energy,
+                  genres: lastAnalysis.genres,
+                  description: lastAnalysis.description,
+                }}
+                userPreferences={userPreferences}
+                savedPresets={savedPresets}
+                selectedGenre={selectedGenre}
+                selectedInstruments={selectedInstruments}
+                energyLevel={energyLevel}
+                blendRatio={blendRatio}
+                userVibeText={userVibeText}
+                showAdvanced={showAdvanced}
+                currentPresetId={currentPresetId}
+                styleLevel={styleLevel}
+                vocalType={vocalType}
+                onGenreChange={setSelectedGenre}
+                onInstrumentsChange={setSelectedInstruments}
+                onEnergyChange={setEnergyLevel}
+                onBlendRatioChange={setBlendRatio}
+                onVibeTextChange={setUserVibeText}
+                onShowAdvancedChange={setShowAdvanced}
+                onStyleLevelChange={setStyleLevel}
+                onVocalTypeChange={setVocalType}
+                onGenerateVariations={() => setShowVariationStrategy(true)}
+                onSavePreset={handleSavePreset}
+                onLoadPreset={handleLoadPreset}
+                onDeletePreset={handleDeletePreset}
+                onSaveAsDefault={handleSaveAsDefault}
+                disabled={isGenerating}
+              />
+
+              <PromptEditor
+                prompt={finalPrompt}
+                onPromptChange={(newPrompt) => {
+                  setEditedPrompt(newPrompt);
+                  setIsPromptEdited(newPrompt !== finalPrompt);
+                }}
+                onReset={() => {
+                  setEditedPrompt(null);
+                  setIsPromptEdited(false);
+                }}
+                disabled={isGenerating}
+                context={{
+                  genre: selectedGenre || lastAnalysis?.genres[0],
+                  mood: lastAnalysis?.mood,
+                  energy: energyLevel || (typeof lastAnalysis?.energy === "string" ? lastAnalysis.energy : "Medium"),
+                  instruments: selectedInstruments,
+                }}
+              />
+
+              <Button
+                onClick={async () => {
+                  if (!lastAnalysis) return;
+                  
+                  // Use edited prompt if available, otherwise use auto-generated
+                  const promptToUse = editedPrompt || finalPrompt;
+                  
+                  if (!promptToUse.trim()) {
+                    toast({
+                      title: "Prompt Required",
+                      description: "Please enter a prompt for music generation",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  
+                  const refined = buildRefinedAnalysis(
+                    lastAnalysis,
+                    {
+                      selectedGenre,
+                      selectedInstruments,
+                      energyLevel,
+                      blendRatio,
+                      userVibeText,
+                      styleLevel,
+                      vocalType,
+                    },
+                    userPreferences
+                  );
+
+                  // Pass custom prompt if user edited it
+                  await handleGenerateMusic(refined, promptToUse);
+                }}
+                className="w-full py-6 text-lg font-semibold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                size="lg"
+                disabled={isGenerating}
+              >
+                <Sparkles className="w-5 h-5 mr-2" />
+                {isGenerating ? "Generating Music..." : "Generate AI Music"}
+              </Button>
+            </div>
+          )}
+
           {/* Loading States */}
           {(state === "analyzing" || state === "gathering") && (
             <LoadingState
@@ -769,7 +1436,26 @@ const Index = () => {
                   audioUrl={generatedTrack.audioUrl}
                   prompt={generatedTrack.prompt}
                   metadata={generatedTrack.metadata}
-                  onRegenerate={() => lastAnalysis && handleGenerateMusic(lastAnalysis)}
+                  onRegenerate={() => {
+                    if (lastAnalysis) {
+                      const refined = buildRefinedAnalysis(
+                        lastAnalysis,
+                        {
+                          selectedGenre,
+                          selectedInstruments,
+                          energyLevel,
+                          blendRatio,
+                          userVibeText,
+                          styleLevel,
+                          vocalType,
+                        },
+                        userPreferences
+                      );
+                      // Use edited prompt if available, otherwise use auto-generated
+                      const promptToUse = editedPrompt || finalPrompt;
+                      handleGenerateMusic(refined, promptToUse);
+                    }
+                  }}
                 />
               )}
 
@@ -837,6 +1523,19 @@ const Index = () => {
             </div>
           )}
         </main>
+
+        {/* Variation Strategy Selector */}
+        <VariationStrategySelector
+          open={showVariationStrategy}
+          onOpenChange={setShowVariationStrategy}
+          strategy={variationStrategy}
+          onStrategyChange={setVariationStrategy}
+          onConfirm={() => {
+            setShowVariationStrategy(false);
+            handleGenerateVariations();
+          }}
+          disabled={isGeneratingVariations || isGenerating}
+        />
 
         {/* Footer */}
         <footer className="text-center mt-16 text-sm text-muted-foreground">

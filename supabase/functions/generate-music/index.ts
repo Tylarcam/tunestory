@@ -26,6 +26,11 @@ const requestSchema = z.object({
     timeOfDay: z.string().max(50).optional(),
     atmosphere: z.string().max(200).optional(),
   }).optional(),
+  model: z.enum(['small', 'medium', 'large', 'melody']).optional().default('small'),
+  duration: z.number().min(10).max(60).optional().default(30),
+  customPrompt: z.string().max(500).optional(), // Custom prompt override
+  styleLevel: z.number().min(0).max(10).optional().default(5), // 0-10 production style/era
+  vocalType: z.enum(['instrumental', 'minimal-vocals', 'vocal-focused']).optional().default('instrumental'),
 });
 
 serve(async (req) => {
@@ -66,11 +71,16 @@ serve(async (req) => {
       description, 
       setting,
       time_of_day,
-      visualElements 
+      visualElements,
+      model,
+      duration,
+      customPrompt,
+      styleLevel,
+      vocalType
     } = parseResult.data;
   
-    // Build AudioCraft-optimized prompt
-    const musicPrompt = buildMusicGenPrompt({
+    // Use custom prompt if provided, otherwise build from analysis
+    const musicPrompt = customPrompt || buildMusicGenPrompt({
       mood,
       energy,
       genres,
@@ -78,10 +88,15 @@ serve(async (req) => {
       description,
       setting,
       time_of_day,
-      visualElements
+      visualElements,
+      styleLevel,
+      vocalType
     });
   
     console.log('🎵 AudioCraft prompt:', musicPrompt);
+    if (customPrompt) {
+      console.log('   (Using custom prompt from user)');
+    }
   
     // Get Modal API URL from environment
     const MODAL_API_URL = Deno.env.get('MODAL_API_URL');
@@ -156,10 +171,16 @@ serve(async (req) => {
 
     const modalRequestBody = {
       prompt: musicPrompt,
+<<<<<<< HEAD
       duration: duration,
       temperature: temperature,
       model: model,
       decoder: decoder
+=======
+      duration: duration || 30,
+      temperature: 1.0,
+      model: model || 'small'
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
     };
 
     console.log('Request body:', JSON.stringify(modalRequestBody, null, 2));
@@ -296,17 +317,31 @@ serve(async (req) => {
     console.log('✅ Generated audio:', modalData.size_bytes, 'bytes');
     console.log('   Generation time:', modalData.generation_time_seconds, 'seconds');
   
+    // Determine model name for metadata
+    const modelNames: Record<string, string> = {
+      small: 'AudioCraft MusicGen Small (Meta Research)',
+      medium: 'AudioCraft MusicGen Medium (Meta Research)',
+      large: 'AudioCraft MusicGen Large (Meta Research)',
+      melody: 'AudioCraft MusicGen Melody (Meta Research)'
+    };
+    
     return new Response(
       JSON.stringify({
         success: true,
         audioUrl: audioDataUrl,
         prompt: musicPrompt,
         metadata: {
+<<<<<<< HEAD
           model: `AudioCraft MusicGen ${model.charAt(0).toUpperCase() + model.slice(1)} (Meta Research)`,
           version: `facebook/musicgen-${model}`,
           model_size: model,
           decoder: decoder,
           duration: modalData.duration || duration,
+=======
+          model: modelNames[model || 'small'] || 'AudioCraft MusicGen Small (Meta Research)',
+          version: `facebook/musicgen-${model || 'small'}`,
+          duration: modalData.duration || duration || 30,
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
           status: 'generated',
           format: 'wav',
           size: modalData.size_bytes,

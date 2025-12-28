@@ -1,6 +1,9 @@
 /**
  * localStorage utilities for user preferences and presets
+<<<<<<< HEAD
  * Handles persistence with error handling
+=======
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
  */
 
 export interface UserPreferences {
@@ -19,6 +22,7 @@ export interface Preset {
   energy: string;
   blendRatio: number;
   vibeTemplate: string;
+<<<<<<< HEAD
   createdAt: number;
 }
 
@@ -40,11 +44,18 @@ function isLocalStorageAvailable(): boolean {
     return false;
   }
 }
+=======
+}
+
+const PREFERENCES_KEY = "tunestory_preferences";
+const PRESETS_KEY = "tunestory_presets";
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
 
 /**
  * Get user preferences from localStorage
  */
 export function getUserPreferences(): UserPreferences | null {
+<<<<<<< HEAD
   if (!isLocalStorageAvailable()) return null;
 
   try {
@@ -63,6 +74,13 @@ export function getUserPreferences(): UserPreferences | null {
     return parsed as UserPreferences;
   } catch (error) {
     console.error("Failed to read user preferences:", error);
+=======
+  try {
+    const stored = localStorage.getItem(PREFERENCES_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored) as UserPreferences;
+  } catch {
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
     return null;
   }
 }
@@ -71,6 +89,7 @@ export function getUserPreferences(): UserPreferences | null {
  * Save user preferences to localStorage
  */
 export function setUserPreferences(preferences: UserPreferences): boolean {
+<<<<<<< HEAD
   if (!isLocalStorageAvailable()) return false;
 
   try {
@@ -98,6 +117,12 @@ export function clearUserPreferences(): boolean {
     return true;
   } catch (error) {
     console.error("Failed to clear user preferences:", error);
+=======
+  try {
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+    return true;
+  } catch {
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
     return false;
   }
 }
@@ -106,6 +131,7 @@ export function clearUserPreferences(): boolean {
  * Get saved presets from localStorage
  */
 export function getSavedPresets(): Preset[] {
+<<<<<<< HEAD
   if (!isLocalStorageAvailable()) return [];
 
   try {
@@ -116,11 +142,19 @@ export function getSavedPresets(): Preset[] {
     return Array.isArray(parsed) ? (parsed as Preset[]) : [];
   } catch (error) {
     console.error("Failed to read saved presets:", error);
+=======
+  try {
+    const stored = localStorage.getItem(PRESETS_KEY);
+    if (!stored) return [];
+    return JSON.parse(stored) as Preset[];
+  } catch {
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
     return [];
   }
 }
 
 /**
+<<<<<<< HEAD
  * Save presets array to localStorage
  */
 export function setSavedPresets(presets: Preset[]): boolean {
@@ -135,6 +169,15 @@ export function setSavedPresets(presets: Preset[]): boolean {
       return false;
     }
     console.error("Failed to save presets:", error);
+=======
+ * Save presets to localStorage
+ */
+function setSavedPresets(presets: Preset[]): boolean {
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+    return true;
+  } catch {
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
     return false;
   }
 }
@@ -144,18 +187,35 @@ export function setSavedPresets(presets: Preset[]): boolean {
  */
 export function addPreset(preset: Preset): { success: boolean; presets: Preset[] } {
   const presets = getSavedPresets();
+<<<<<<< HEAD
   const updated = [...presets, preset];
   const success = setSavedPresets(updated);
+=======
+  
+  // Check for duplicate IDs
+  if (presets.some((p) => p.id === preset.id)) {
+    return { success: false, presets };
+  }
+  
+  const updated = [...presets, preset];
+  const success = setSavedPresets(updated);
+  
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
   return { success, presets: success ? updated : presets };
 }
 
 /**
+<<<<<<< HEAD
  * Delete a preset by ID
+=======
+ * Delete a preset
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
  */
 export function deletePreset(presetId: string): { success: boolean; presets: Preset[] } {
   const presets = getSavedPresets();
   const updated = presets.filter((p) => p.id !== presetId);
   const success = setSavedPresets(updated);
+<<<<<<< HEAD
   return { success, presets: success ? updated : presets };
 }
 
@@ -179,3 +239,9 @@ export function generatePresetId(): string {
   return `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+=======
+  
+  return { success, presets: success ? updated : presets };
+}
+
+>>>>>>> ee02c99da9568b0d5115c986d6d40cf03bd659ba
