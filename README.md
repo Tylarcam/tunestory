@@ -35,55 +35,48 @@ Unlike generic music recommenders that rely on listening history, TuneStory unde
 
 ### Tech Stack
 
-| Layer | Technology | Why This Choice |
-|-------|-----------|-----------------|
-| **Frontend** | React 18 + TypeScript + Vite | Type safety across the stack, fast HMR for rapid iteration, modern ES modules |
-| **Styling** | Tailwind CSS + shadcn/ui | Utility-first CSS with accessible component primitives, fully customizable |
-| **State Management** | TanStack React Query | Automatic caching, request deduplication, optimistic updates for smooth UX |
-| **Backend** | Supabase Edge Functions (Deno) | Serverless auto-scaling, pay-per-use model, zero cold starts for edge deployment |
-| **AI/ML** | Gemini 2.5 Flash (via Lovable Gateway) | Fast, cost-effective vision model with strong multimodal understanding |
-| **Music API** | Spotify Web API | Rich metadata, 30-second previews, direct streaming links, OAuth 2.0 |
-| **Music Generation** | AudioCraft MusicGen (via Modal) | GPU-accelerated generation, 5-15s latency, no rate limits |
+| Layer                      | Technology                             | Why This Choice                                                                  |
+| -------------------------- | -------------------------------------- | -------------------------------------------------------------------------------- |
+| **Frontend**         | React 18 + TypeScript + Vite           | Type safety across the stack, fast HMR for rapid iteration, modern ES modules    |
+| **Styling**          | Tailwind CSS + shadcn/ui               | Utility-first CSS with accessible component primitives, fully customizable       |
+| **State Management** | TanStack React Query                   | Automatic caching, request deduplication, optimistic updates for smooth UX       |
+| **Backend**          | Supabase Edge Functions (Deno)         | Serverless auto-scaling, pay-per-use model, zero cold starts for edge deployment |
+| **AI/ML**            | Gemini 2.5 Flash (via Lovable Gateway) | Fast, cost-effective vision model with strong multimodal understanding           |
+| **Music API**        | Spotify Web API                        | Rich metadata, 30-second previews, direct streaming links, OAuth 2.0             |
+| **Music Generation** | AudioCraft MusicGen (via Modal)        | GPU-accelerated generation, 5-15s latency, no rate limits                        |
 
 ### System Architecture
 
 ```mermaid
-flowchart TD
-    User[User Uploads Photo] --> Frontend[React Frontend]
+flowchart LR
+    User[👤 User] -->|Upload Photo| Frontend[React Frontend]
     Frontend -->|base64 image| EdgeFunc[Supabase Edge Function]
     
-    EdgeFunc -->|image + prompt| Gemini[Gemini 2.5 Flash API]
-    Gemini -->|mood, energy, genres, searchTerms| EdgeFunc
+    EdgeFunc -->|analyze image| Gemini[Gemini 2.5 Flash]
+    Gemini -->|mood, genres, search terms| EdgeFunc
     
-    EdgeFunc -->|search queries| Spotify[Spotify Web API]
+    EdgeFunc -->|search music| Spotify[Spotify Web API]
     Spotify -->|track recommendations| EdgeFunc
     
-    EdgeFunc -->|JSON response| Frontend
-    Frontend -->|displays tracks| User
+    EdgeFunc -->|curated soundtrack| Frontend
+    Frontend -->|display results| User
     
-    subgraph Security[Security Boundaries]
-        EdgeFunc -.->|secrets stored here| Secrets[Supabase Secrets]
-        Frontend -.->|public keys only| PublicKeys[Public API Keys]
-    end
+    EdgeFunc -.->|API keys| Secrets[(Supabase Secrets)]
     
     style User fill:#9333ea
     style Frontend fill:#3b82f6
     style EdgeFunc fill:#10b981
     style Gemini fill:#f59e0b
-    style Spotify fill:#10b981
-    style Secrets fill:#ef4444
+    style Spotify fill:#1db954
+    style Secrets fill:#ef4444,stroke-dasharray: 5 5
 ```
 
 ### Key Design Decisions
 
 - **Edge Functions over Traditional Backend**: Zero infrastructure management, automatic scaling, and global distribution reduce latency. Perfect for stateless API orchestration between Gemini and Spotify.
-
 - **Handling Gemini's Variable Response Structure**: Implemented Zod schema validation with graceful degradation. If Gemini returns incomplete data, we fall back to simpler genre-based search instead of failing—ensuring users always see results.
-
 - **Multi-Strategy Spotify Search**: Instead of a single search query, we execute 6+ parallel searches (vibe tags, genre combinations, mood+energy pairs) and deduplicate results. This prevents generic recommendations and increases diversity.
-
 - **Error Handling Strategy**: User-facing errors are friendly and actionable ("We couldn't analyze this photo. Try another?"), while detailed errors are logged server-side for debugging. Fallback strategies ensure partial failures don't break the experience.
-
 - **OAuth 2.0 with State Parameter**: Added CSRF protection via state parameter validation, and fixed redirect URI mismatches by passing the exact URI from frontend to backend for token exchange.
 
 ---
@@ -126,12 +119,14 @@ The app will be available at `http://localhost:8080`
 ### Environment Variables
 
 **Frontend (`.env` file):**
+
 ```bash
 VITE_SUPABASE_URL=https://yourproject.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
 **Supabase Edge Functions (set in Supabase Dashboard → Settings → Edge Functions → Secrets):**
+
 ```bash
 GEMINI_API_KEY=your-gemini-key
 # or
@@ -145,25 +140,30 @@ SPOTIFY_REDIRECT_URI=http://localhost:8080
 ### Troubleshooting
 
 **CORS Errors:**
+
 - Ensure your Supabase project allows requests from `http://localhost:8080`
 - Check Edge Function CORS headers in `supabase/config.toml`
 
 **API Key Errors:**
+
 - Verify secrets are set in Supabase Dashboard (not just `.env`)
 - For Gemini, ensure you're using either `GEMINI_API_KEY` or `LOVABLE_API_KEY` (not both)
 
 **Spotify Auth Issues:**
+
 - Verify redirect URI matches exactly between Spotify app settings and `SPOTIFY_REDIRECT_URI` secret
 - Check that redirect URI includes protocol (`http://` or `https://`)
 - Ensure Spotify app has correct scopes: `user-read-private`, `user-read-email`, `playlist-read-private`
 
 **Edge Function Deployment:**
+
 - Run `supabase functions deploy <function-name>` from project root
 - Check function logs in Supabase Dashboard for detailed errors
 
 ### Deployment
 
 **Frontend (Vercel/Netlify):**
+
 ```bash
 # Build for production
 npm run build
@@ -177,6 +177,7 @@ vercel --prod
 Set environment variables in your hosting platform's dashboard.
 
 **Supabase Edge Functions:**
+
 ```bash
 # Install Supabase CLI
 npm install -g supabase
@@ -199,7 +200,7 @@ supabase functions deploy spotify-auth
 ## 🎯 How It Works
 
 1. **Photo Upload**: User drags and drops or selects a photo (JPG, PNG, WEBP)
-2. **Image Analysis**: 
+2. **Image Analysis**:
    - Photo is converted to base64 and sent to `analyze-image` edge function
    - Gemini 2.5 Flash analyzes the image and extracts:
      - Mood (single word or phrase)
@@ -207,11 +208,11 @@ supabase functions deploy spotify-auth
      - Suggested genres
      - Poetic one-sentence description
      - Spotify search terms for finding matching tracks
-3. **Music Discovery**: 
+3. **Music Discovery**:
    - `get-recommendations` edge function uses the analysis to search Spotify
    - Multiple search queries are built from search terms, genres, mood, and energy
    - Top 5 unique tracks are returned with preview URLs, album art, and Spotify links
-4. **Playback & Sharing**: 
+4. **Playback & Sharing**:
    - Users can preview tracks (30-second Spotify previews)
    - Share matches on social media or copy links
    - Regenerate to get new recommendations
@@ -231,6 +232,7 @@ How do you make music discovery feel personal when you don't know someone's list
 **Problem:** Token exchange was failing with "invalid_grant" errors. The frontend constructed redirect URIs dynamically (`window.location.origin + pathname`), but the backend used a static fallback, causing mismatches that Spotify's OAuth 2.0 spec rejects.
 
 **Approach:** Explored three options:
+
 1. Hardcode redirect URIs (inflexible for dev/staging/prod)
 2. Use environment variables only (breaks localhost development)
 3. Pass redirect URI from frontend to backend (requires validation)
@@ -244,6 +246,7 @@ How do you make music discovery feel personal when you don't know someone's list
 **Problem:** Gemini 2.5 Flash occasionally returned inconsistent JSON schemas—sometimes missing fields, sometimes using different key names, or returning arrays instead of strings. This broke the Spotify search logic downstream.
 
 **Approach:** Considered three strategies:
+
 1. Strict JSON mode (limited Gemini's creative analysis capabilities)
 2. Regex parsing (brittle, hard to debug, doesn't catch all edge cases)
 3. Zod schema validation + fallback prompts (maintains flexibility while ensuring reliability)
@@ -257,11 +260,13 @@ How do you make music discovery feel personal when you don't know someone's list
 **Problem:** Single search queries (e.g., "indie pop summer vibes") often returned generic, overplayed tracks. Users wanted diverse, contextually relevant recommendations that felt personally curated.
 
 **Approach:** Tested multiple strategies:
+
 1. Single optimized query (fast but generic)
 2. Sequential fallback queries (slow, still limited diversity)
 3. Parallel multi-strategy searches (faster, maximizes diversity)
 
 **Solution:** Execute 6+ parallel Spotify searches using different strategies:
+
 - Gemini-optimized search terms (highest priority)
 - Genre + mood combinations
 - Energy level + mood pairs
@@ -273,13 +278,9 @@ How do you make music discovery feel personal when you don't know someone's list
 ### What I Learned
 
 - **Image-to-music mapping is culturally subjective** – What feels "nostalgic" varies by listener background. Future versions could incorporate user preference signals to personalize the mapping.
-
 - **Prompt engineering for multimodal AI requires iteration** – Initial prompts that worked for text-only models failed with vision. We learned to explicitly describe visual elements (colors, composition, time of day) rather than assuming the model would infer them.
-
 - **Graceful degradation > perfect accuracy** – Users prefer seeing *some* results over error messages, even if the AI analysis is incomplete. This shaped our fallback strategy philosophy.
-
 - **OAuth 2.0 redirect URI validation is non-negotiable** – Spotify's strict matching prevents security vulnerabilities, but requires careful coordination between frontend and backend. Documenting the flow helped prevent regressions.
-
 - **Serverless architecture enables rapid iteration** – Edge Functions let us deploy fixes in minutes, not hours. This was crucial for debugging OAuth and API integration issues.
 
 ### Future Roadmap
@@ -287,11 +288,8 @@ How do you make music discovery feel personal when you don't know someone's list
 If I had $50K and 3 months, I would build:
 
 - **Collaborative Playlists** – Let multiple users upload photos to co-create a shared soundtrack. Requires multiplayer state sync via Supabase Realtime and conflict resolution for concurrent edits.
-
 - **Personalized Music Generation** – Fine-tune AudioCraft models on user's favorite tracks to generate music that matches both the photo's vibe and their musical taste. Requires audio feature extraction pipeline and model training infrastructure.
-
 - **Video Frame Analysis** – Extract keyframes from videos and generate dynamic soundtracks that evolve with the narrative. Challenges include frame selection algorithms and temporal mood mapping.
-
 - **Cultural Context Awareness** – Incorporate user's location, language, and cultural background into music recommendations. Requires geolocation APIs and culturally-aware genre taxonomies.
 
 ---
@@ -338,6 +336,7 @@ If I had $50K and 3 months, I would build:
 Contributions welcome! Open an issue or PR.
 
 When contributing, please:
+
 - Follow the existing code style (TypeScript, ESLint rules)
 - Add tests for new features
 - Update documentation as needed
@@ -351,8 +350,6 @@ This project is open source and available under the [MIT License](./LICENSE).
 
 ### Attribution Requirements
 
-- **Gemini API**: This project uses Google's Gemini 2.5 Flash model. Please review [Google's AI Terms of Service](https://ai.google.dev/terms) for usage guidelines.
-
-- **Spotify Web API**: Music recommendations and previews are provided by Spotify. This project complies with [Spotify's Developer Terms](https://developer.spotify.com/terms).
-
+- **Gemini API**: This project uses Google's Gemini 2.5 Flash model. Please review [Google&#39;s AI Terms of Service](https://ai.google.dev/terms) for usage guidelines.
+- **Spotify Web API**: Music recommendations and previews are provided by Spotify. This project complies with [Spotify&#39;s Developer Terms](https://developer.spotify.com/terms).
 - **AudioCraft MusicGen**: Music generation uses Meta's AudioCraft MusicGen model. See [AudioCraft License](https://github.com/facebookresearch/audiocraft/blob/main/LICENSE) for details.
