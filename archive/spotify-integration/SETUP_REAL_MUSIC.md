@@ -130,5 +130,3 @@ The code is already updated to use Supabase function instead of the mock server.
 
 
 
-
-

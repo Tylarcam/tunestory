@@ -57,5 +57,3 @@ Once you've added the secret:
 
 
 
-
-
