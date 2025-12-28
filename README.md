@@ -51,18 +51,18 @@ Unlike generic music recommenders that rely on listening history, TuneStory unde
 flowchart LR
     User[👤 User] -->|Upload Photo| Frontend[React Frontend]
     Frontend -->|base64 image| EdgeFunc[Supabase Edge Function]
-    
+  
     EdgeFunc -->|analyze image| Gemini[Gemini 2.5 Flash]
     Gemini -->|mood, genres, search terms| EdgeFunc
-    
+  
     EdgeFunc -->|search music| Spotify[Spotify Web API]
     Spotify -->|track recommendations| EdgeFunc
-    
+  
     EdgeFunc -->|curated soundtrack| Frontend
     Frontend -->|display results| User
-    
+  
     EdgeFunc -.->|API keys| Secrets[(Supabase Secrets)]
-    
+  
     style User fill:#9333ea
     style Frontend fill:#3b82f6
     style EdgeFunc fill:#10b981
