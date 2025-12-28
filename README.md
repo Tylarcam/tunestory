@@ -294,16 +294,16 @@ If I had $50K and 3 months, I would build:
 
 ## 📸 Screenshots & Demo
 
-![TuneStory upload interface with drag-and-drop zone](./docs/screenshots/upload.png)
+![TuneStory upload interface with drag-and-drop zone](./image/Demo_Screenshot/uploadInterface.png)
 *Drag-and-drop photo upload with real-time preview*
 
-![Mood analysis display with extracted emotions and genres](./docs/screenshots/mood-analysis.png)
+![Mood analysis display with extracted emotions and genres](./image/Demo_Screenshot/moodAnalysis.png)
 *AI-powered mood analysis showing emotional tone and suggested genres*
 
-![Music recommendations with audio player](./docs/screenshots/recommendations.png)
+![Music recommendations with audio player](./image/Demo_Screenshot/soundtrackRec.png)
 *Curated soundtrack with 30-second previews and Spotify links*
 
-![Music generation interface](./docs/screenshots/music-generation.png)
+![Music generation interface](./image/Demo_Screenshot/musicGen.png)
 *Generate original music tracks based on photo analysis*
 
 ### Demo Video
