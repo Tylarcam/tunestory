@@ -49,26 +49,24 @@ Unlike generic music recommenders that rely on listening history, TuneStory unde
 
 ```mermaid
 flowchart LR
-    User[👤 User] -->|Upload Photo| Frontend[React Frontend]
-    Frontend -->|base64 image| EdgeFunc[Supabase Edge Function]
-  
-    EdgeFunc -->|analyze image| Gemini[Gemini 2.5 Flash]
-    Gemini -->|mood, genres, search terms| EdgeFunc
-  
-    EdgeFunc -->|search music| Spotify[Spotify Web API]
-    Spotify -->|track recommendations| EdgeFunc
-  
-    EdgeFunc -->|curated soundtrack| Frontend
-    Frontend -->|display results| User
-  
-    EdgeFunc -.->|API keys| Secrets[(Supabase Secrets)]
-  
-    style User fill:#9333ea
-    style Frontend fill:#3b82f6
-    style EdgeFunc fill:#10b981
-    style Gemini fill:#f59e0b
-    style Spotify fill:#1db954
-    style Secrets fill:#ef4444,stroke-dasharray: 5 5
+    A[📸 User Upload] -->|photo| B[⚛️ React Frontend]
+    B -->|base64| C[⚡ Edge Function]
+    C -->|analyze| D[🤖 Gemini API]
+    D -->|mood/genres| C
+    C -->|search| E[🎵 Spotify API]
+    E -->|tracks| C
+    C -->|results| B
+    B -->|display| F[🎧 Soundtrack]
+    
+    C -.->|API keys| G[(🔐 Secrets)]
+    
+    style A fill:#f8fafc,stroke:#64748b
+    style B fill:#dbeafe,stroke:#3b82f6
+    style C fill:#d1fae5,stroke:#10b981
+    style D fill:#fed7aa,stroke:#f59e0b
+    style E fill:#bfdbfe,stroke:#3b82f6
+    style F fill:#f8fafc,stroke:#64748b
+    style G fill:#fee2e2,stroke:#ef4444,stroke-dasharray: 3 3
 ```
 
 ### Key Design Decisions
