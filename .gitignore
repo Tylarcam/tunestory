@@ -30,3 +30,6 @@ env/
 .venv
 *.pyc
 __pycache__/
+
+# Archive documentation
+archive/
