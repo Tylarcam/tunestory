@@ -1,0 +1,95 @@
+---
+alwaysApply: true
+
+# Lovable Project Development Rules
+
+This project syncs bidirectionally with Lovable. Follow these conventions strictly:
+
+## Tech Stack (DO NOT CHANGE)
+
+- React 18 + TypeScript + Vite
+- Tailwind CSS with CSS variables
+- shadcn/ui components (located in src/components/ui/)
+- React Router DOM for routing
+- TanStack Query for data fetching
+- Supabase for backend (Lovable Cloud)
+
+## Critical Rules
+
+### NEVER EDIT These Auto-Generated Files:
+- src/integrations/supabase/client.ts
+- src/integrations/supabase/types.ts
+- supabase/config.toml
+- .env
+
+### Import Aliases (ALWAYS USE):
+- `@/components/*` for components
+- `@/lib/*` for utilities
+- `@/hooks/*` for hooks
+- `@/integrations/supabase/client` for Supabase client
+
+### UI Components (REUSE, DON'T RECREATE):
+Use existing shadcn/ui components from src/components/ui/ such as Button, Card, Dialog, Select, Input, Badge, Tabs, Sheet, etc.
+
+### Component Patterns:
+- Use functional components with TypeScript
+- Props interfaces should be defined inline or above component
+- Use Tailwind classes for styling (no CSS modules/styled-components)
+- Handle loading/error states with existing patterns
+
+### Supabase Edge Functions:
+- Place in supabase/functions/{function-name}/index.ts
+- Use Deno runtime syntax
+- Include CORS headers for all responses
+- Environment variables via Deno.env.get()
+
+### File Naming:
+- Components: PascalCase (e.g., MyComponent.tsx)
+- Utilities/hooks: camelCase (e.g., useMyHook.ts)
+- Pages go in src/pages/
+
+### Type Safety:
+- Define interfaces for props and data structures
+- Avoid `any` types when possible
+- Use optional chaining (?.) and nullish coalescing (??)
+
+### Common Imports Template:
+
+```typescript
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
+```
+
+---
+
+## 🔑 Key Takeaways for Seamless Integration:
+
+| Do ✅                       | Don't ❌                         |
+|----------------------------|----------------------------------|
+| Use `@/` import aliases    | Use relative paths like `../../` |
+| Reuse existing shadcn/ui components | Create new basic UI components |
+| Use Tailwind classes       | Use inline styles or CSS files   |
+| Follow existing component patterns | Introduce new state management libraries |
+| Add new routes above the catch-all | Modify App.tsx structure |
+| Use `supabase` from integrations | Create new Supabase clients |
+| Define TypeScript interfaces    | Use `any` everywhere          |
+
+---
+
+## 💡 Commit Message Tips
+
+When pushing from Cursor, use descriptive commit messages that help Lovable understand the changes:
+
+```
+feat: Add instrument preset picker with category filters
+
+- Added InstrumentPresetPicker component
+- Integrated with existing Index page flow
+- Uses existing Select and Badge UI components
+```
+
+This way, if you ever need to ask Lovable to review or extend your changes, it has context!
+---
