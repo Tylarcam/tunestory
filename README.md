@@ -1,18 +1,29 @@
+> 📄 **For hiring managers:** See the [1-page case study](https://www.notion.so/nobrainerco/TuneStory-345b245b1c9a475b83d937b0952dad51) for metrics, architecture decisions, and what this project demonstrates about my AI product capabilities.
+
+---
+
 # 🎵 TuneStory
 
 > AI-powered photo-to-soundtrack generator • Turn memories into music
 
-[🎬 Live Demo](https://youtu.be/dKQ2hteZXa4) • [📊 Case Study](https://www.notion.so/nobrainerco/Tylar-Campbell-Music-AI-Research-Projects-0a5e2c958f4a4902b5ffd8db62c5cc05)
+[🎬 Live Demo](https://tunestory.lovable.app) • [📊 1-Page Case Study](https://www.notion.so/nobrainerco/TuneStory-345b245b1c9a475b83d937b0952dad51) • [📖 Full Story](https://open.substack.com/pub/tylar/p/closing-the-loop-tunestory-revisited)
 
 Built with Gemini 2.5 Flash • Spotify Web API • Supabase Edge Functions • React + TypeScript
 
 ---
 
+## 🎯 Quick Overview
+
+- **What:** AI-powered photo-to-soundtrack generator using multimodal vision + music intelligence
+- **Built with:** React/TypeScript, Supabase Edge Functions, Gemini 2.5 Flash, Spotify API, AudioCraft
+- **Key results:** 3x recommendation diversity, <1% AI parsing errors, >95% OAuth reliability
+- **My role:** Solo builder – owned product strategy, UX design, AI integration, and full-stack development
+
+---
+
 ## Why TuneStory?
 
-Photos capture moments, but memory is multisensory. We remember the *feeling* of a sunset, not just how it looked—the warmth, the breeze, the soundtrack that was playing in our heads. Yet when we scroll through our camera roll, those emotional layers are missing.
-
-TuneStory bridges that gap. Upload any photo, and our AI analyzes the visual narrative—the mood, energy, composition, and subtle cues that make a moment memorable. Then it finds the music that matches, creating a soundtrack that brings your photos back to life.
+Photos capture moments, but memory is multisensory—we remember the *feeling* of a sunset, the warmth, the soundtrack playing in our heads. TuneStory bridges that gap by analyzing the visual narrative (mood, energy, composition) and finding music that matches, creating soundtracks that bring your photos back to life.
 
 Unlike generic music recommenders that rely on listening history, TuneStory understands the *context* of your moments, making each recommendation feel personally crafted for that specific memory.
 
@@ -292,6 +303,10 @@ If I had $50K and 3 months, I would build:
 
 ---
 
+**For the complete story** including the 3-year journey from hackathon to production, philosophical reflections, and detailed technical deep-dives, read **[Closing the Loop: TuneStory (Revisited)](https://open.substack.com/pub/tylar/p/closing-the-loop-tunestory-revisited)** on Substack.
+
+---
+
 ## 📸 Screenshots & Demo
 
 ![TuneStory upload interface with drag-and-drop zone](./image/Demo_Screenshot/uploadInterface.png)
@@ -312,6 +327,17 @@ If I had $50K and 3 months, I would build:
 
 ---
 
+## 📚 Learn More
+
+**Choose your depth:**
+
+- 📄 **[1-page case study](https://www.notion.so/nobrainerco/TuneStory-345b245b1c9a475b83d937b0952dad51)** – Hiring-focused overview with metrics, architecture decisions, and what this proves about my capabilities
+- 📖 **[Full story on Substack](https://open.substack.com/pub/tylar/p/closing-the-loop-tunestory-revisited)** – The journey from 2023 hackathon to 2026 production rebuild, technical challenges, and lessons learned
+- 🎬 **[Demo video (4 min)](https://youtu.be/dKQ2hteZXa4)** – Watch it in action
+- 💻 **[Technical docs](./AUDIOCRAFT_MODAL_ARCHITECTURE_BLUEPRINT.md)** – Deep-dive architecture and setup guides
+
+---
+
 ## 📚 Additional Resources
 
 - [Technical Architecture Blueprint](./AUDIOCRAFT_MODAL_ARCHITECTURE_BLUEPRINT.md)
@@ -319,13 +345,15 @@ If I had $50K and 3 months, I would build:
 - [Music Generation Setup](./MODAL_SETUP.md)
 - [Application Overview](./APP_OVERVIEW.md)
 
-## Built by tcam
+## Built by Tylar Campbell
 
-**Senior Project Manager | AI/ML Instructor | PhD Candidate @ SFU**
+**AI Product Builder | Applied AI Engineer | PhD Candidate @ SFU**
 
-[Portfolio](https://nobrainer.co) • [LinkedIn](https://linkedin.com/in/tylarcampbell) • [GitHub](https://github.com/tcam)
+**What I Do:** Build production-ready AI systems that bridge multimodal intelligence (vision, audio, text) with intuitive UX. TuneStory demonstrates my approach to scoping, shipping, and iterating on novel AI products end-to-end.
 
-*TuneStory was built as a portfolio piece exploring AI-driven music UX. Open to collaboration and feedback!*
+[Portfolio](https://nobrainer.co) • [LinkedIn](https://linkedin.com/in/tylarcampbell) • [GitHub](https://github.com/Tylarcam) • [Substack](https://tylar.substack.com)
+
+*Open to collaboration, feedback, and opportunities in AI product development!*
 
 ---
 
