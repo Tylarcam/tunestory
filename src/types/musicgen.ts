@@ -57,5 +57,3 @@ export interface GeneratedTrack {
 
 export type VibeMode = 'discover' | 'generate'
 
-export type MusicGenModel = 'small' | 'medium' | 'large' | 'melody'
-
